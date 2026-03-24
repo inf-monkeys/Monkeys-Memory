@@ -1,0 +1,25 @@
+{
+  "name": "monkeys-memory",
+  "version": "1.0.0",
+  "description": "A shared memory layer for coding agents.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inf-monkeys/Monkeys-Memory.git"
+  },
+  "homepage": "https://github.com/inf-monkeys/Monkeys-Memory#readme",
+  "bugs": {
+    "url": "https://github.com/inf-monkeys/Monkeys-Memory/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "compile": "node scripts/compile-memory.mjs",
+    "capture": "node scripts/capture-experience.mjs",
+    "retrieve": "node scripts/retrieve-memory.mjs",
+    "sync": "node scripts/sync-memory.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

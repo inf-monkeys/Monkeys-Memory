@@ -1,0 +1,6 @@
+{
+  "org": "default-org",
+  "memoryRoot": ".monkeys-memory",
+  "onboardingRuleLimit": 10,
+  "runtimeRuleLimit": 5
+}

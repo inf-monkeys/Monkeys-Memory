@@ -1,0 +1,25 @@
+{
+  "id": "exp_YYYY_MM_DD_001",
+  "org": "default-org",
+  "repo": "sample-app",
+  "kind": "rule",
+  "title": "Short, stable summary of the insight",
+  "claim": "Describe the project understanding, not the prompt wording.",
+  "scope": {
+    "paths": ["src/example/**"],
+    "task_types": ["bugfix"]
+  },
+  "evidence": [
+    {
+      "type": "mr",
+      "ref": "!123"
+    }
+  ],
+  "source": {
+    "author": "Your Name",
+    "session": "2026-03-24-example-task"
+  },
+  "confidence": 0.7,
+  "status": "active",
+  "updated_at": "2026-03-24T00:00:00.000Z"
+}

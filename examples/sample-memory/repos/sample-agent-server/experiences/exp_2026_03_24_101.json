@@ -1,0 +1,25 @@
+{
+  "id": "exp_2026_03_24_101",
+  "org": "sample-org",
+  "repo": "sample-agent-server",
+  "kind": "rule",
+  "title": "Preserve worker idempotency before throughput tuning",
+  "claim": "When changing worker flow, preserve task idempotency before optimizing throughput.",
+  "scope": {
+    "paths": ["src/workers/**", "src/tasks/**"],
+    "task_types": ["feature", "refactor"]
+  },
+  "evidence": [
+    {
+      "type": "mr",
+      "ref": "!11"
+    }
+  ],
+  "source": {
+    "author": "Sample Engineer",
+    "session": "2026-03-24-worker-tuning"
+  },
+  "confidence": 0.78,
+  "status": "active",
+  "updated_at": "2026-03-24T10:00:00.000Z"
+}
