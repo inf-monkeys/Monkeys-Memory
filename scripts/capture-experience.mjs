@@ -34,6 +34,7 @@ function parseArgs(argv) {
     evidenceType: null,
     evidenceRef: null,
     auto: false,
+    dryRun: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -82,6 +83,8 @@ function parseArgs(argv) {
       index += 1;
     } else if (token === "--auto") {
       args.auto = true;
+    } else if (token === "--dry-run") {
+      args.dryRun = true;
     }
   }
 
@@ -229,10 +232,15 @@ try {
     `${recordId}.json`,
   );
 
-  await writeJson(outputPath, experience);
-  await compileRepo(projectRoot, context.repo);
-
-  console.log(`captured experience for ${context.repo}: ${outputPath}`);
+  if (args.dryRun) {
+    console.log("--- dry run (no files written) ---");
+    console.log(JSON.stringify(experience, null, 2));
+    console.log(`\nWould write to: ${outputPath}`);
+  } else {
+    await writeJson(outputPath, experience);
+    await compileRepo(projectRoot, context.repo);
+    console.log(`captured experience for ${context.repo}: ${outputPath}`);
+  }
 } catch (error) {
   console.error(`[monkeys-memory] capture failed: ${error.message}`);
   process.exit(1);

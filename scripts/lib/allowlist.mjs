@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readConfig, pathExists, readJson } from "./utils.mjs";
+import { readConfig, pathExists, readJson, writeJson } from "./utils.mjs";
 
 export async function getAllowlistPath(projectRoot) {
   const config = await readConfig(projectRoot);
@@ -40,4 +40,18 @@ export async function isRepoAllowed(projectRoot, repoName) {
 export async function getAllowedRepos(projectRoot) {
   const allowlist = await readRepoAllowlist(projectRoot);
   return allowlist.repos;
+}
+
+export async function addRepoToAllowlist(projectRoot, repoName) {
+  clearAllowlistCache();
+  const allowlistPath = await getAllowlistPath(projectRoot);
+  const allowlist = await readRepoAllowlist(projectRoot);
+  if (allowlist.repos.includes(repoName)) {
+    return false;
+  }
+  allowlist.repos.push(repoName);
+  allowlist.repos.sort();
+  await writeJson(allowlistPath, allowlist);
+  clearAllowlistCache();
+  return true;
 }

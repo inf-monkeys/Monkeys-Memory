@@ -90,7 +90,27 @@ This directory is gitignored and intended to stay private.
 
 ## Enable Your Repos
 
-After install, edit the local allowlist file inside your `monkeys-memory` clone:
+The fastest way to set up a repo:
+
+```bash
+monkeys-memory init-repo --workspace /path/to/your-repo
+```
+
+This does four things in one command:
+
+1. Adds the repo to the allowlist
+2. Installs a `post-commit` hook for automatic experience capture
+3. Creates a `CLAUDE.md` in the target repo so Claude Code auto-retrieves memory
+4. Runs an initial compile
+
+Options:
+
+- `--no-hooks` — skip the post-commit hook
+- `--no-claude` — skip CLAUDE.md creation
+
+### Manual setup
+
+Alternatively, edit the allowlist file directly:
 
 ```text
 <monkeys-memory>/.monkeys-memory/org/repo-allowlist.json
@@ -127,6 +147,7 @@ monkeys-memory sync [--no-pull] [--from-ref <ref>] [--to-ref <ref>]
 # Management
 monkeys-memory status [--repo <repo>]
 monkeys-memory list --repo <repo> [--status active|deprecated] [--kind rule|exception] [--path <glob>] [--format json|table]
+monkeys-memory init-repo --workspace <path> [--no-hooks] [--no-claude]
 monkeys-memory deprecate --repo <repo> --id <experience-id>
 ```
 

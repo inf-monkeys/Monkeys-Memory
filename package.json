@@ -30,6 +30,7 @@
     "status": "node scripts/status-memory.mjs",
     "list": "node scripts/list-experiences.mjs",
     "deprecate": "node scripts/deprecate-experience.mjs",
+    "init-repo": "node scripts/init-repo.mjs",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },
