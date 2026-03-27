@@ -28,17 +28,6 @@ async function createMemoryRoot() {
   return root;
 }
 
-async function createTargetRepo() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "target-repo-"));
-  await execFileAsync("git", ["init"], { cwd: dir });
-  await execFileAsync("git", ["config", "user.email", "test@test.com"], { cwd: dir });
-  await execFileAsync("git", ["config", "user.name", "Test"], { cwd: dir });
-  await fs.writeFile(path.join(dir, "README.md"), "# Test\n");
-  await execFileAsync("git", ["add", "."], { cwd: dir });
-  await execFileAsync("git", ["commit", "-m", "init"], { cwd: dir });
-  return dir;
-}
-
 test("addRepoToAllowlist adds new repos", async () => {
   const root = await createMemoryRoot();
   const added = await addRepoToAllowlist(root, "new-repo");
@@ -65,10 +54,16 @@ test("post-commit hook template exists and is valid", async () => {
   assert.ok(content.startsWith("#!/usr/bin/env bash"));
 });
 
-test("target-repo CLAUDE.md template exists", async () => {
-  const templatePath = path.join(import.meta.dirname, "..", "templates", "target-repo-CLAUDE.md");
-  const content = await fs.readFile(templatePath, "utf8");
-  assert.ok(content.includes("retrieve"));
-  assert.ok(content.includes("capture"));
-  assert.ok(content.includes("ALWAYS"));
+test("skills exist for both org-memory-use and org-memory-capture", async () => {
+  const useSkill = path.join(import.meta.dirname, "..", "skills", "org-memory-use", "SKILL.md");
+  const captureSkill = path.join(import.meta.dirname, "..", "skills", "org-memory-capture", "SKILL.md");
+  assert.ok(await pathExists(useSkill));
+  assert.ok(await pathExists(captureSkill));
+
+  const useContent = await fs.readFile(useSkill, "utf8");
+  const captureContent = await fs.readFile(captureSkill, "utf8");
+  assert.ok(useContent.includes("name: org-memory-use"));
+  assert.ok(captureContent.includes("name: org-memory-capture"));
+  assert.ok(useContent.includes("retrieve"));
+  assert.ok(captureContent.includes("capture"));
 });

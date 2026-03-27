@@ -96,17 +96,17 @@ The fastest way to set up a repo:
 monkeys-memory init-repo --workspace /path/to/your-repo
 ```
 
-This does four things in one command:
+This does three things in one command:
 
 1. Adds the repo to the allowlist
 2. Installs a `post-commit` hook for automatic experience capture
-3. Creates a `CLAUDE.md` in the target repo so Claude Code auto-retrieves memory
-4. Runs an initial compile
+3. Runs an initial compile
+
+Skills (`org-memory-use` and `org-memory-capture`) are installed globally by `install.sh` and shared by both Claude Code and Codex — no per-repo setup needed.
 
 Options:
 
 - `--no-hooks` — skip the post-commit hook
-- `--no-claude` — skip CLAUDE.md creation
 
 ### Manual setup
 
@@ -147,7 +147,7 @@ monkeys-memory sync [--no-pull] [--from-ref <ref>] [--to-ref <ref>]
 # Management
 monkeys-memory status [--repo <repo>]
 monkeys-memory list --repo <repo> [--status active|deprecated] [--kind rule|exception] [--path <glob>] [--format json|table]
-monkeys-memory init-repo --workspace <path> [--no-hooks] [--no-claude]
+monkeys-memory init-repo --workspace <path> [--no-hooks]
 monkeys-memory deprecate --repo <repo> --id <experience-id>
 ```
 
@@ -251,8 +251,8 @@ Mark outdated experiences as deprecated with the `deprecate` command. Deprecated
 
 | Capability | Availability | Notes |
 | --- | --- | --- |
-| Codex skills | Yes | `install.sh` links `org-memory-use` and `org-memory-capture` into `~/.codex/skills/` |
-| Claude Code integration | Yes | `install.sh` installs commands into `~/.claude/commands/` and provides `CLAUDE.md` |
+| Codex skills | Yes | `install.sh` links skills into `~/.codex/skills/` |
+| Claude Code skills | Yes | `install.sh` links same skills into `~/.claude/skills/` |
 | Allowlist-based activation | Yes | Only approved repos get memory behavior |
 | Auto-init for new repos | Yes | Adding a repo to the allowlist is enough |
 | Repo-managed compile | Yes | `compile` and `capture` run directly from the memory repo CLI |

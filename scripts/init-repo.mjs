@@ -1,40 +1,35 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { addRepoToAllowlist, isRepoAllowed } from "./lib/allowlist.mjs";
+import { addRepoToAllowlist } from "./lib/allowlist.mjs";
 import { compileRepo } from "./lib/compiler.mjs";
 import { resolveRepoContext } from "./lib/context.mjs";
 import { ensureRepoInitialized } from "./lib/repo-init.mjs";
 import { pathExists, readConfig } from "./lib/utils.mjs";
 
-const execFileAsync = promisify(execFile);
-
 function parseArgs(argv) {
   const args = {
     workspace: null,
     noHooks: false,
-    noClaude: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === "--help" || token === "-h") {
-      console.log("Usage: monkeys-memory init-repo --workspace <path> [--no-hooks] [--no-claude]");
+      console.log("Usage: monkeys-memory init-repo --workspace <path> [--no-hooks]");
       console.log("");
       console.log("Sets up a target repo for monkeys-memory:");
       console.log("  - Adds repo to allowlist if not already present");
       console.log("  - Installs post-commit hook for auto-capture");
-      console.log("  - Creates CLAUDE.md for Claude Code auto-retrieve");
       console.log("  - Runs initial compile");
+      console.log("");
+      console.log("Skills (org-memory-use, org-memory-capture) are installed globally");
+      console.log("by install.sh and shared by both Claude Code and Codex.");
       process.exit(0);
     } else if (token === "--workspace") {
       args.workspace = argv[i + 1] ?? null;
       i += 1;
     } else if (token === "--no-hooks") {
       args.noHooks = true;
-    } else if (token === "--no-claude") {
-      args.noClaude = true;
     }
   }
 
@@ -63,7 +58,6 @@ async function installPostCommitHook(workspace) {
       console.log("  - post-commit hook already contains monkeys-memory");
       return true;
     }
-    // Append to existing hook
     await fs.writeFile(hookPath, existing.trimEnd() + "\n\n" + template, "utf8");
     console.log("  - appended monkeys-memory to existing post-commit hook");
   } else {
@@ -72,26 +66,6 @@ async function installPostCommitHook(workspace) {
     console.log("  - installed post-commit hook");
   }
   return true;
-}
-
-async function installClaudeMd(workspace) {
-  const claudeMdPath = path.join(workspace, "CLAUDE.md");
-  const templatePath = path.join(import.meta.dirname, "..", "templates", "target-repo-CLAUDE.md");
-  const template = await fs.readFile(templatePath, "utf8");
-
-  if (await pathExists(claudeMdPath)) {
-    const existing = await fs.readFile(claudeMdPath, "utf8");
-    if (existing.includes("monkeys-memory")) {
-      console.log("  - CLAUDE.md already contains monkeys-memory instructions");
-      return;
-    }
-    // Append to existing CLAUDE.md
-    await fs.writeFile(claudeMdPath, existing.trimEnd() + "\n\n" + template, "utf8");
-    console.log("  - appended monkeys-memory section to existing CLAUDE.md");
-  } else {
-    await fs.writeFile(claudeMdPath, template, "utf8");
-    console.log("  - created CLAUDE.md with retrieve/capture instructions");
-  }
 }
 
 try {
@@ -130,14 +104,7 @@ try {
     console.log("  - skipped hooks (--no-hooks)");
   }
 
-  // 4. Install CLAUDE.md
-  if (!args.noClaude) {
-    await installClaudeMd(workspace);
-  } else {
-    console.log("  - skipped CLAUDE.md (--no-claude)");
-  }
-
-  // 5. Run initial compile
+  // 4. Run initial compile
   const summary = await compileRepo(memoryRoot, repoName);
   console.log(`  - compiled: ${summary.ruleCount} rules, ${summary.exceptionCount} exceptions, ${summary.sourceExperienceCount} experiences`);
 
@@ -146,7 +113,8 @@ try {
   console.log("");
   console.log("What happens next:");
   console.log("  - Every commit auto-captures experience (post-commit hook)");
-  console.log("  - Claude Code reads CLAUDE.md and retrieves team memory at session start");
+  console.log("  - Skills (org-memory-use / org-memory-capture) handle retrieve and capture");
+  console.log("  - Both Claude Code and Codex use the same skills automatically");
   console.log("  - Run 'monkeys-memory status' to check the state");
   console.log("  - Run 'monkeys-memory list --repo " + repoName + "' to see captured experiences");
 } catch (error) {

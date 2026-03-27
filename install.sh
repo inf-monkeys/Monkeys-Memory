@@ -4,6 +4,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 CODEX_SKILLS_DIR="${HOME}/.codex/skills"
+CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 MONKEYS_MEMORY_HOME="${HOME}/.monkeys-memory"
 MONKEYS_MEMORY_BIN_DIR="${MONKEYS_MEMORY_HOME}/bin"
 LOCAL_MEMORY_ROOT="${REPO_ROOT}/.monkeys-memory"
@@ -56,7 +57,6 @@ if [ -n "${CONFIG_ORG}" ]; then
   DEFAULT_ORG="${CONFIG_ORG}"
 fi
 
-mkdir -p "${CODEX_SKILLS_DIR}"
 mkdir -p "${MONKEYS_MEMORY_BIN_DIR}"
 mkdir -p "${LOCAL_MEMORY_ORG_DIR}"
 
@@ -70,36 +70,19 @@ if [ ! -f "${LOCAL_ALLOWLIST_PATH}" ]; then
 EOF
 fi
 
+# Install skills for both Codex and Claude Code
+# Same SKILL.md files, symlinked into both tools' skill directories
+mkdir -p "${CODEX_SKILLS_DIR}"
 ln -sfn "${REPO_ROOT}/skills/org-memory-use" "${CODEX_SKILLS_DIR}/org-memory-use"
 ln -sfn "${REPO_ROOT}/skills/org-memory-capture" "${CODEX_SKILLS_DIR}/org-memory-capture"
+
+mkdir -p "${CLAUDE_SKILLS_DIR}"
+ln -sfn "${REPO_ROOT}/skills/org-memory-use" "${CLAUDE_SKILLS_DIR}/org-memory-use"
+ln -sfn "${REPO_ROOT}/skills/org-memory-capture" "${CLAUDE_SKILLS_DIR}/org-memory-capture"
+
+# Common entrypoints
 ln -sfn "${REPO_ROOT}" "${MONKEYS_MEMORY_HOME}/repo"
 ln -sfn "${REPO_ROOT}/bin/monkeys-memory" "${MONKEYS_MEMORY_BIN_DIR}/monkeys-memory"
-
-# Claude Code integration
-CLAUDE_CODE_STATUS="not-detected"
-CLAUDE_DIR="${HOME}/.claude"
-if [ -d "${CLAUDE_DIR}" ]; then
-  CLAUDE_COMMANDS_DIR="${CLAUDE_DIR}/commands"
-  mkdir -p "${CLAUDE_COMMANDS_DIR}"
-
-  cat > "${CLAUDE_COMMANDS_DIR}/monkeys-memory-retrieve.md" <<CCEOF
-# Retrieve team memory for the current repo
-bash "\$HOME/.monkeys-memory/bin/monkeys-memory" retrieve --workspace "\$(pwd)" --task \$ARGUMENTS
-CCEOF
-
-  cat > "${CLAUDE_COMMANDS_DIR}/monkeys-memory-capture.md" <<CCEOF
-# Capture a new experience for the current repo
-bash "\$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "\$(pwd)" \$ARGUMENTS
-CCEOF
-
-  cat > "${CLAUDE_COMMANDS_DIR}/monkeys-memory-status.md" <<CCEOF
-# Show monkeys-memory status
-bash "\$HOME/.monkeys-memory/bin/monkeys-memory" status
-CCEOF
-
-  cp "${REPO_ROOT}/CLAUDE.md" "${MONKEYS_MEMORY_HOME}/CLAUDE.md"
-  CLAUDE_CODE_STATUS="installed"
-fi
 
 if [ "${ENABLE_HOOKS}" -eq 1 ]; then
   if git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -114,22 +97,15 @@ fi
 
 (cd "${REPO_ROOT}" && npm run compile)
 
-echo "Installed Codex skills:"
-echo "  - ${CODEX_SKILLS_DIR}/org-memory-use"
-echo "  - ${CODEX_SKILLS_DIR}/org-memory-capture"
-echo
-echo "Claude Code integration:"
-if [ "${CLAUDE_CODE_STATUS}" = "installed" ]; then
-  echo "  - commands installed to ${CLAUDE_DIR}/commands/"
-  echo "  - CLAUDE.md copied to ${MONKEYS_MEMORY_HOME}/CLAUDE.md"
-  echo "  - use /monkeys-memory-retrieve and /monkeys-memory-capture in Claude Code"
-else
-  echo "  - ~/.claude not detected; skipped"
-  echo "  - install Claude Code first, then rerun ./install.sh"
-fi
+echo "Installed skills:"
+echo "  Codex:      ${CODEX_SKILLS_DIR}/org-memory-use"
+echo "              ${CODEX_SKILLS_DIR}/org-memory-capture"
+echo "  Claude Code: ${CLAUDE_SKILLS_DIR}/org-memory-use"
+echo "              ${CLAUDE_SKILLS_DIR}/org-memory-capture"
 echo
 echo "Installed command:"
 echo "  - ${MONKEYS_MEMORY_BIN_DIR}/monkeys-memory"
+echo
 echo "Git hooks:"
 if [ "${HOOKS_STATUS}" = "enabled" ]; then
   echo "  - enabled by default for this repo"
@@ -142,15 +118,13 @@ else
   echo "  - skipped (--no-hooks)"
   echo "  - rerun ./install.sh without --no-hooks to enable later"
 fi
+echo
 echo "Initialized local memory data:"
 echo "  - ${LOCAL_ALLOWLIST_PATH}"
+echo
 echo "Next step:"
-echo "  - add repo directory names to ${LOCAL_ALLOWLIST_PATH}"
-echo "  - memory activates automatically the next time you work in an allowlisted repo"
+echo "  monkeys-memory init-repo --workspace /path/to/your-repo"
 echo
 echo "Ready."
-echo "Open a repo session; the skills can now call retrieve/capture via:"
-echo "  bash ${MONKEYS_MEMORY_BIN_DIR}/monkeys-memory"
-echo
 echo "If you want it on PATH, add this once:"
 echo "  export PATH=\"${MONKEYS_MEMORY_BIN_DIR}:\$PATH\""
