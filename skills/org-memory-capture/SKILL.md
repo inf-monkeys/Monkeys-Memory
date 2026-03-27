@@ -24,7 +24,15 @@ This skill is the default write path for team memory.
 bash "$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "<current-repo>" --task <task> --title "<title>" --claim "<claim>"
 ```
 
-4. This writes a new JSON file under:
+4. For automatic capture from recent commit history:
+
+```bash
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "<current-repo>" --auto
+```
+
+Auto mode extracts title and claim from the last commit message, infers paths from changed files, and sets a lower default confidence (0.5) since auto-extracted insights are less curated.
+
+5. This writes a new JSON file under:
 
 ```text
 .monkeys-memory/repos/<repo>/experiences/
@@ -32,9 +40,23 @@ bash "$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "<current-re
 
 This path is inside the `monkeys-memory` repo, not the project repo being worked on.
 
-5. Follow [`experience.schema.json`](../../schemas/experience.schema.json).
-6. Keep the claim narrow and scoped.
-7. The capture CLI refreshes compiled memory for the current repo automatically after writing the experience.
+6. Follow [`experience.schema.json`](../../schemas/experience.schema.json).
+7. Keep the claim narrow and scoped.
+8. The capture CLI refreshes compiled memory for the current repo automatically after writing the experience.
+
+## Deprecating experiences
+
+To mark an experience as deprecated (it will be excluded from future compilations):
+
+```bash
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" deprecate --repo <repo> --id <experience-id>
+```
+
+List all experiences to find IDs:
+
+```bash
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" list --repo <repo>
+```
 
 ## What to capture
 

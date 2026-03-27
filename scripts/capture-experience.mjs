@@ -1,9 +1,13 @@
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { isRepoAllowed } from "./lib/allowlist.mjs";
 import { compileRepo } from "./lib/compiler.mjs";
 import { resolveRepoContext } from "./lib/context.mjs";
 import { ensureRepoInitialized } from "./lib/repo-init.mjs";
-import { readConfig, slugify, writeJson } from "./lib/utils.mjs";
+import { normalizeEvidenceType, normalizeTaskType, readConfig, slugify, writeJson } from "./lib/utils.mjs";
+
+const execFileAsync = promisify(execFile);
 
 function parseMultiValue(value) {
   if (!value) {
@@ -29,6 +33,7 @@ function parseArgs(argv) {
     session: `session-${Date.now()}`,
     evidenceType: null,
     evidenceRef: null,
+    auto: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -48,6 +53,10 @@ function parseArgs(argv) {
       args.task = next;
       index += 1;
     } else if (token === "--kind") {
+      const validKinds = ["rule", "exception"];
+      if (next && !validKinds.includes(next)) {
+        throw new Error(`--kind must be one of: ${validKinds.join(", ")} (got "${next}")`);
+      }
       args.kind = next ?? "rule";
       index += 1;
     } else if (token === "--title") {
@@ -68,18 +77,66 @@ function parseArgs(argv) {
     } else if (token === "--evidence-ref") {
       args.evidenceRef = next;
       index += 1;
+    } else if (token === "--auto") {
+      args.auto = true;
     }
   }
 
-  if (!args.title) {
-    throw new Error("--title is required");
+  if ((args.evidenceType && !args.evidenceRef) || (!args.evidenceType && args.evidenceRef)) {
+    console.error("warning: --evidence-type and --evidence-ref should be provided together");
   }
 
-  if (!args.claim) {
-    throw new Error("--claim is required");
+  if (!args.auto) {
+    if (!args.title) {
+      throw new Error("--title is required (or use --auto)");
+    }
+    if (!args.claim) {
+      throw new Error("--claim is required (or use --auto)");
+    }
   }
 
   return args;
+}
+
+async function runGit(cwd, gitArgs) {
+  try {
+    const { stdout } = await execFileAsync("git", gitArgs, { cwd, encoding: "utf8" });
+    return stdout.trim();
+  } catch {
+    return "";
+  }
+}
+
+function inferTaskType(message) {
+  const lower = message.toLowerCase();
+  if (/\bfix(es|ed)?\b/.test(lower) || /\bbug\b/.test(lower)) return "bugfix";
+  if (/\bhotfix\b/.test(lower)) return "hotfix";
+  if (/\brefactor\b/.test(lower)) return "refactor";
+  if (/\bfeat(ure)?\b/.test(lower)) return "feature";
+  if (/\breview\b/.test(lower)) return "review";
+  return "feature";
+}
+
+async function autoExtract(workspace) {
+  const commitMsg = await runGit(workspace, ["log", "-1", "--format=%B"]);
+  const diffStat = await runGit(workspace, ["diff", "HEAD~1", "--name-only"]);
+  const changedFiles = diffStat.split("\n").filter(Boolean);
+
+  const firstLine = (commitMsg.split("\n")[0] || "").trim();
+  const title = firstLine.slice(0, 80) || "Auto-captured experience";
+  const body = commitMsg.split("\n").slice(1).join(" ").trim();
+  const claim = body || firstLine || "Auto-captured from recent commit.";
+
+  const paths = changedFiles.length > 0
+    ? [...new Set(changedFiles.map((f) => {
+        const dir = path.dirname(f);
+        return dir === "." ? "**" : `${dir}/**`;
+      }))]
+    : ["**"];
+
+  const taskType = inferTaskType(commitMsg);
+
+  return { title, claim, paths, taskType };
 }
 
 const projectRoot = path.resolve(path.join(import.meta.dirname, ".."));
@@ -94,30 +151,57 @@ if (!(await isRepoAllowed(projectRoot, context.repo))) {
 
 await ensureRepoInitialized(projectRoot, config.memoryRoot, context.repo);
 
+let title = args.title;
+let claim = args.claim;
+let autoData = null;
+
+if (args.auto) {
+  autoData = await autoExtract(context.workspace);
+  title = args.title ?? autoData.title;
+  claim = args.claim ?? autoData.claim;
+}
+
 const now = new Date();
 const isoNow = now.toISOString();
 const datePrefix = isoNow.slice(0, 10).replaceAll("-", "_");
 const uniqueSuffix = String(Date.now()).slice(-6);
-const recordId = `exp_${datePrefix}_${uniqueSuffix}_${slugify(args.title).slice(0, 20)}`;
-const scopePaths = args.path ? parseMultiValue(args.path) : context.path ? [context.path] : ["**"];
-const taskTypes = args.task ? parseMultiValue(args.task) : context.task ? [context.task] : [];
+const recordId = `exp_${datePrefix}_${uniqueSuffix}_${slugify(title).slice(0, 20)}`;
+
+const scopePaths = args.path
+  ? parseMultiValue(args.path)
+  : autoData?.paths
+    ? autoData.paths
+    : context.path
+      ? [context.path]
+      : ["**"];
+
+const rawTaskTypes = args.task
+  ? parseMultiValue(args.task)
+  : autoData?.taskType
+    ? [autoData.taskType]
+    : context.task
+      ? [context.task]
+      : [];
+
+const taskTypes = rawTaskTypes.map(normalizeTaskType);
+const evidenceType = args.evidenceType ? normalizeEvidenceType(args.evidenceType) : null;
 
 const experience = {
   id: recordId,
   org: config.org,
   repo: context.repo,
   kind: args.kind,
-  title: args.title,
-  claim: args.claim,
+  title,
+  claim,
   scope: {
     paths: scopePaths,
     task_types: taskTypes,
   },
   evidence:
-    args.evidenceType && args.evidenceRef
+    evidenceType && args.evidenceRef
       ? [
           {
-            type: args.evidenceType,
+            type: evidenceType,
             ref: args.evidenceRef,
           },
         ]
@@ -126,7 +210,7 @@ const experience = {
     author: args.author,
     session: args.session,
   },
-  confidence: 0.7,
+  confidence: args.auto ? 0.5 : 0.7,
   status: "active",
   updated_at: isoNow,
 };

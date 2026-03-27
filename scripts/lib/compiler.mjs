@@ -4,9 +4,10 @@ import {
   clamp,
   confidenceBucket,
   ensureDir,
-  listDirectories,
   listJsonFiles,
+  matchGlob,
   maxIsoDate,
+  normalizeTaskType,
   normalizeText,
   readConfig,
   readJson,
@@ -18,6 +19,13 @@ import {
 import { getAllowedRepos, isRepoAllowed } from "./allowlist.mjs";
 import { ensureRepoInitialized } from "./repo-init.mjs";
 import { toYaml } from "./yaml.mjs";
+
+const STOP_WORDS = new Set([
+  "the", "a", "an", "is", "are", "was", "were", "be", "been",
+  "to", "in", "for", "of", "and", "or", "not", "no",
+  "should", "must", "always", "never", "do", "does",
+  "it", "its", "this", "that", "with", "from", "by", "on", "at",
+]);
 
 function validateExperience(experience, filePath) {
   const required = [
@@ -31,26 +39,187 @@ function validateExperience(experience, filePath) {
     "confidence",
   ];
 
+  const label = experience.id ? `Experience ${experience.id}` : "Experience (unknown id)";
+
   for (const field of required) {
     if (!(field in experience)) {
-      throw new Error(`Missing required field "${field}" in ${filePath}`);
+      throw new Error(`${label}: missing required field "${field}" in ${filePath}`);
     }
   }
 
   if (!Array.isArray(experience.scope?.paths) || experience.scope.paths.length === 0) {
-    throw new Error(`Experience ${experience.id} must include at least one scope path in ${filePath}`);
+    throw new Error(`${label} must include at least one scope path in ${filePath}`);
   }
 
   if (typeof experience.confidence !== "number" || experience.confidence < 0 || experience.confidence > 1) {
-    throw new Error(`Experience ${experience.id} has invalid confidence in ${filePath}`);
+    throw new Error(`${label} has invalid confidence in ${filePath}`);
   }
+
+  const validKinds = ["rule", "exception"];
+  if ("kind" in experience && !validKinds.includes(experience.kind)) {
+    throw new Error(`${label} has invalid kind "${experience.kind}" (expected ${validKinds.join(" or ")}) in ${filePath}`);
+  }
+
+  const validStatuses = ["active", "deprecated"];
+  if ("status" in experience && !validStatuses.includes(experience.status)) {
+    throw new Error(`${label} has invalid status "${experience.status}" (expected ${validStatuses.join(" or ")}) in ${filePath}`);
+  }
+
+  if ("evidence" in experience && Array.isArray(experience.evidence)) {
+    for (let i = 0; i < experience.evidence.length; i++) {
+      const item = experience.evidence[i];
+      if (!item.type || !item.ref) {
+        throw new Error(`${label} has invalid evidence at index ${i}: "type" and "ref" are required in ${filePath}`);
+      }
+    }
+  }
+
+  if (experience.source) {
+    if (typeof experience.source.author !== "string" || !experience.source.author) {
+      throw new Error(`${label} has invalid source: "author" must be a non-empty string in ${filePath}`);
+    }
+    if (typeof experience.source.session !== "string" || !experience.source.session) {
+      throw new Error(`${label} has invalid source: "session" must be a non-empty string in ${filePath}`);
+    }
+  }
+}
+
+function applyConfidenceDecay(experience, config) {
+  if (!experience.updated_at) return;
+  const ageMs = Date.now() - new Date(experience.updated_at).getTime();
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  const startDays = config.confidenceDecayStartDays ?? 90;
+  const ratePerMonth = config.confidenceDecayRatePerMonth ?? 0.02;
+  const maxDecay = config.confidenceDecayMax ?? 0.2;
+  if (ageDays <= startDays) return;
+  const monthsPastStart = (ageDays - startDays) / 30;
+  const decay = Math.min(monthsPastStart * ratePerMonth, maxDecay);
+  experience.confidence = clamp(experience.confidence - decay, 0, 1);
+}
+
+function extractClaimTokens(claim) {
+  return normalizeText(claim)
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+}
+
+function jaccardSimilarity(setA, setB) {
+  if (setA.size === 0 && setB.size === 0) return 1;
+  let intersection = 0;
+  for (const item of setA) {
+    if (setB.has(item)) intersection += 1;
+  }
+  const union = setA.size + setB.size - intersection;
+  return union === 0 ? 0 : intersection / union;
 }
 
 function makeGroupKey(experience) {
   const kind = experience.kind ?? "rule";
   const paths = uniqueSorted(experience.scope.paths).join("|");
-  const taskTypes = uniqueSorted(experience.scope.task_types ?? []).join("|");
+  const taskTypes = uniqueSorted((experience.scope.task_types ?? []).map(normalizeTaskType)).join("|");
   return [kind, normalizeText(experience.claim), paths, taskTypes].join("::");
+}
+
+function mergeGroupsByFuzzyClaim(grouped, threshold) {
+  if (threshold >= 1.0) return grouped;
+
+  const keys = [...grouped.keys()];
+  const parent = new Map();
+  for (const key of keys) parent.set(key, key);
+
+  function find(k) {
+    while (parent.get(k) !== k) {
+      parent.set(k, parent.get(parent.get(k)));
+      k = parent.get(k);
+    }
+    return k;
+  }
+
+  function union(a, b) {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+
+  const tokenCache = new Map();
+  for (const key of keys) {
+    const bucket = grouped.get(key);
+    const tokens = new Set(extractClaimTokens(bucket[0].claim));
+    tokenCache.set(key, tokens);
+  }
+
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      const keyA = keys[i];
+      const keyB = keys[j];
+      const [kindA] = keyA.split("::");
+      const [kindB] = keyB.split("::");
+      if (kindA !== kindB) continue;
+
+      const tokensA = tokenCache.get(keyA);
+      const tokensB = tokenCache.get(keyB);
+      if (jaccardSimilarity(tokensA, tokensB) >= threshold) {
+        const pathsA = uniqueSorted(grouped.get(keyA).flatMap((e) => e.scope.paths));
+        const pathsB = uniqueSorted(grouped.get(keyB).flatMap((e) => e.scope.paths));
+        const hasOverlap = pathsA.some((pa) => pathsB.some((pb) => pa === pb || matchGlob(pa, pb) || matchGlob(pb, pa)));
+        if (hasOverlap) {
+          union(keyA, keyB);
+        }
+      }
+    }
+  }
+
+  const merged = new Map();
+  for (const key of keys) {
+    const root = find(key);
+    const bucket = merged.get(root) ?? [];
+    bucket.push(...grouped.get(key));
+    merged.set(root, bucket);
+  }
+
+  return merged;
+}
+
+function detectConflicts(rules) {
+  const negationWords = new Set(["not", "never", "avoid", "don't", "do-not", "dont", "no"]);
+  const affirmWords = new Set(["always", "must", "should", "require", "ensure"]);
+
+  function getAllTokens(text) {
+    return normalizeText(text).split(/\s+/).filter((t) => t.length > 1);
+  }
+
+  for (let i = 0; i < rules.length; i++) {
+    for (let j = i + 1; j < rules.length; j++) {
+      const ruleA = rules[i];
+      const ruleB = rules[j];
+
+      const pathsOverlap = ruleA.scope.paths.some((pa) =>
+        ruleB.scope.paths.some((pb) => pa === pb || matchGlob(pa, pb) || matchGlob(pb, pa)),
+      );
+      if (!pathsOverlap) continue;
+
+      const tokensA = extractClaimTokens(ruleA.claim);
+      const tokensB = extractClaimTokens(ruleB.claim);
+      const contentA = new Set(tokensA.filter((t) => !negationWords.has(t) && !affirmWords.has(t)));
+      const contentB = new Set(tokensB.filter((t) => !negationWords.has(t) && !affirmWords.has(t)));
+      const overlap = jaccardSimilarity(contentA, contentB);
+      if (overlap < 0.3) continue;
+
+      const allA = getAllTokens(ruleA.claim);
+      const allB = getAllTokens(ruleB.claim);
+      const hasNegA = allA.some((t) => negationWords.has(t));
+      const hasNegB = allB.some((t) => negationWords.has(t));
+      const hasAffA = allA.some((t) => affirmWords.has(t));
+      const hasAffB = allB.some((t) => affirmWords.has(t));
+
+      if ((hasNegA && hasAffB && !hasNegB) || (hasNegB && hasAffA && !hasNegA)) {
+        ruleA.conflicts_with ??= [];
+        ruleB.conflicts_with ??= [];
+        if (!ruleA.conflicts_with.includes(ruleB.id)) ruleA.conflicts_with.push(ruleB.id);
+        if (!ruleB.conflicts_with.includes(ruleA.id)) ruleB.conflicts_with.push(ruleA.id);
+      }
+    }
+  }
 }
 
 function mergeExperiences(kind, experiences) {
@@ -74,7 +243,7 @@ function mergeExperiences(kind, experiences) {
     claim,
     scope: {
       paths: uniqueSorted(experiences.flatMap((experience) => experience.scope.paths)),
-      task_types: uniqueSorted(experiences.flatMap((experience) => experience.scope.task_types ?? [])),
+      task_types: uniqueSorted(experiences.flatMap((experience) => (experience.scope.task_types ?? []).map(normalizeTaskType))),
     },
     confidence: confidenceBucket(confidenceScore),
     confidence_score: Number(confidenceScore.toFixed(2)),
@@ -157,7 +326,7 @@ function buildOnboardingMarkdown(rulePack, config) {
   return `${lines.join("\n")}\n`;
 }
 
-async function loadExperiences(repoDir) {
+async function loadExperiences(repoDir, config) {
   const experienceDir = path.join(repoDir, "experiences");
   const files = await listJsonFiles(experienceDir);
   const loaded = [];
@@ -165,10 +334,12 @@ async function loadExperiences(repoDir) {
   for (const filePath of files) {
     const experience = await readJson(filePath);
     validateExperience(experience, filePath);
+    if (experience.status === "deprecated") continue;
     if (!experience.updated_at) {
       const stat = await fs.stat(filePath);
       experience.updated_at = stat.mtime.toISOString();
     }
+    applyConfidenceDecay(experience, config);
     loaded.push(experience);
   }
 
@@ -190,7 +361,7 @@ export async function compileRepo(projectRoot, repoName) {
   const config = await readConfig(projectRoot);
   const { repoDir, compiledDir } = await ensureRepoInitialized(projectRoot, config.memoryRoot, repoName);
 
-  const experiences = await loadExperiences(repoDir);
+  const experiences = await loadExperiences(repoDir, config);
   const grouped = new Map();
 
   for (const experience of experiences) {
@@ -200,15 +371,22 @@ export async function compileRepo(projectRoot, repoName) {
     grouped.set(key, bucket);
   }
 
-  const mergedItems = [...grouped.values()].map((bucket) => mergeExperiences(bucket[0].kind ?? "rule", bucket));
+  const fuzzyThreshold = config.fuzzyMergeThreshold ?? 0.7;
+  const mergedGroups = mergeGroupsByFuzzyClaim(grouped, fuzzyThreshold);
+
+  const mergedItems = [...mergedGroups.values()].map((bucket) => mergeExperiences(bucket[0].kind ?? "rule", bucket));
   const generatedAt = new Date().toISOString();
+
+  const allRules = mergedItems.filter((item) => item.kind === "rule");
+  detectConflicts(allRules);
+
   const rulePack = {
     version: 1,
     org: config.org,
     repo: repoName,
     generated_at: generatedAt,
     source_experience_count: experiences.length,
-    rules: mergedItems.filter((item) => item.kind === "rule").sort(sortRules),
+    rules: allRules.sort(sortRules),
     exceptions: mergedItems.filter((item) => item.kind === "exception").sort(sortRules),
   };
 
@@ -247,17 +425,56 @@ export async function compileProject(projectRoot, options = {}) {
     });
   }
 
-  for (const repoName of selectedRepoNames) {
-    summaries.push(await compileRepo(projectRoot, repoName));
-  }
+  const results = await Promise.all(
+    selectedRepoNames.map((repoName) => compileRepo(projectRoot, repoName)),
+  );
+  summaries.push(...results);
 
   const orgCompiledDir = path.join(projectRoot, config.memoryRoot, "org", "compiled");
   await ensureDir(orgCompiledDir);
+
+  const generatedAt = new Date().toISOString();
   await writeJson(path.join(orgCompiledDir, "repo-catalog.json"), {
     version: 1,
     org: config.org,
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
     repos: summaries.filter((summary) => !summary.skipped),
+  });
+
+  // Compile org-level rules: rules that appear in 2+ repos
+  const claimToRepos = new Map();
+  for (const summary of summaries) {
+    if (summary.skipped) continue;
+    const rulesPath = path.join(projectRoot, config.memoryRoot, "repos", summary.repo, "compiled", "rules.json");
+    try {
+      const pack = await readJson(rulesPath);
+      for (const rule of pack.rules) {
+        const key = normalizeText(rule.claim);
+        const entry = claimToRepos.get(key) ?? { rule, repos: [] };
+        entry.repos.push(summary.repo);
+        if (!claimToRepos.has(key)) claimToRepos.set(key, entry);
+      }
+    } catch {
+      // skip repos with missing compiled output
+    }
+  }
+
+  const orgRules = [];
+  for (const [, entry] of claimToRepos) {
+    if (entry.repos.length >= 2) {
+      orgRules.push({
+        ...entry.rule,
+        id: `org-${entry.rule.id}`,
+        repos: uniqueSorted(entry.repos),
+      });
+    }
+  }
+
+  await writeJson(path.join(orgCompiledDir, "org-rules.json"), {
+    version: 1,
+    org: config.org,
+    generated_at: generatedAt,
+    rules: orgRules.sort(sortRules),
   });
 
   return summaries;

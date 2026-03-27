@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dev.infmonkeys.com/schemas/org-rules.schema.json",
+  "title": "OrgRules",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "org", "generated_at", "rules"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "org": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "claim",
+          "scope",
+          "confidence",
+          "confidence_score",
+          "source_count",
+          "evidence_count",
+          "updated_at",
+          "sources",
+          "repos"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "enum": ["rule", "exception"] },
+          "title": { "type": "string", "minLength": 1 },
+          "claim": { "type": "string", "minLength": 1 },
+          "scope": {
+            "type": "object",
+            "required": ["paths", "task_types"],
+            "properties": {
+              "paths": { "type": "array", "items": { "type": "string" } },
+              "task_types": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+          "confidence_score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "source_count": { "type": "integer", "minimum": 1 },
+          "evidence_count": { "type": "integer", "minimum": 0 },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "sources": { "type": "array", "items": { "type": "string" } },
+          "repos": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "conflicts_with": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

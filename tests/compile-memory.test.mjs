@@ -119,7 +119,7 @@ test("retrieveContext returns the most relevant compiled rule", async () => {
 
   assert.equal(context.rules.length, 1);
   assert.match(context.rules[0].claim, /adapter/);
-  assert.match(markdown, /Relevant Rules/);
+  assert.match(markdown, /## Rules/);
 });
 
 test("retrieveContext disables memory for repos outside allowlist", async () => {

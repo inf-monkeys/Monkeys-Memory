@@ -97,8 +97,37 @@ export function clamp(value, min, max) {
 }
 
 export function globToRegExp(pattern) {
-  const escaped = pattern.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
-  const regex = escaped.replaceAll("**", "___DOUBLE_STAR___").replaceAll("*", "[^/]*").replaceAll("___DOUBLE_STAR___", ".*");
+  let regex = "";
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i];
+    if (ch === "*" && pattern[i + 1] === "*") {
+      regex += ".*";
+      i += 2;
+      if (pattern[i] === "/") i += 1;
+    } else if (ch === "*") {
+      regex += "[^/]*";
+      i += 1;
+    } else if (ch === "?") {
+      regex += "[^/]";
+      i += 1;
+    } else if (ch === "[") {
+      const close = pattern.indexOf("]", i + 1);
+      if (close === -1) {
+        regex += "\\[";
+        i += 1;
+      } else {
+        regex += pattern.slice(i, close + 1);
+        i = close + 1;
+      }
+    } else if ("|\\{}()^$+.".includes(ch)) {
+      regex += `\\${ch}`;
+      i += 1;
+    } else {
+      regex += ch;
+      i += 1;
+    }
+  }
   return new RegExp(`^${regex}$`);
 }
 
@@ -107,19 +136,87 @@ export function matchGlob(pattern, targetPath) {
 }
 
 export function specificity(pattern) {
-  return pattern.replace(/\*/g, "").length;
+  let score = 0;
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === "*") {
+      if (pattern[i + 1] === "*") i += 1;
+      continue;
+    }
+    if (ch === "?") {
+      score += 0.5;
+    } else if (ch === "[") {
+      const close = pattern.indexOf("]", i + 1);
+      if (close !== -1) {
+        score += 0.5;
+        i = close;
+      } else {
+        score += 1;
+      }
+    } else {
+      score += 1;
+    }
+  }
+  return score;
+}
+
+const TASK_TYPE_ALIASES = {
+  "bugfix": "bugfix", "bug-fix": "bugfix", "bug_fix": "bugfix", "bugFix": "bugfix", "fix": "bugfix",
+  "hotfix": "hotfix", "hot-fix": "hotfix", "hot_fix": "hotfix", "hotFix": "hotfix",
+  "refactor": "refactor", "re-factor": "refactor", "refactoring": "refactor",
+  "feature": "feature", "feat": "feature",
+  "review": "review", "code-review": "review", "code_review": "review", "codeReview": "review",
+};
+
+export function normalizeTaskType(value) {
+  if (!value) return "";
+  const lower = value.trim().toLowerCase();
+  return TASK_TYPE_ALIASES[lower] ?? lower.replace(/[-_\s]+/g, "");
+}
+
+const EVIDENCE_TYPE_ALIASES = {
+  "mr": "mr", "merge-request": "mr", "merge_request": "mr",
+  "pr": "pr", "pull-request": "pr", "pull_request": "pr",
+  "doc": "doc", "document": "doc", "docs": "doc",
+  "incident": "incident", "inc": "incident",
+  "commit": "commit", "sha": "commit",
+};
+
+export function normalizeEvidenceType(value) {
+  if (!value) return "";
+  const lower = value.trim().toLowerCase();
+  return EVIDENCE_TYPE_ALIASES[lower] ?? lower;
+}
+
+export function formatError(context, error) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return `[monkeys-memory] ${context}: ${msg}`;
+}
+
+const _configCache = new Map();
+
+export function clearConfigCache() {
+  _configCache.clear();
 }
 
 export async function readConfig(projectRoot) {
+  if (_configCache.has(projectRoot)) {
+    return _configCache.get(projectRoot);
+  }
+
   const configPath = path.join(projectRoot, "memory.config.json");
+  let config;
   if (!(await pathExists(configPath))) {
-    return {
+    config = {
       org: "unknown-org",
       memoryRoot: ".monkeys-memory",
       onboardingRuleLimit: 10,
       runtimeRuleLimit: 5,
     };
+  } else {
+    config = await readJson(configPath);
   }
 
-  return readJson(configPath);
+  _configCache.set(projectRoot, config);
+  return config;
 }

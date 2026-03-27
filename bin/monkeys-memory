@@ -27,13 +27,25 @@ case "${COMMAND}" in
   sync)
     exec node "${REPO_ROOT}/scripts/sync-memory.mjs" "$@"
     ;;
+  status)
+    exec node "${REPO_ROOT}/scripts/status-memory.mjs" "$@"
+    ;;
+  list)
+    exec node "${REPO_ROOT}/scripts/list-experiences.mjs" "$@"
+    ;;
+  deprecate)
+    exec node "${REPO_ROOT}/scripts/deprecate-experience.mjs" "$@"
+    ;;
   *)
     cat <<EOF
 Usage:
   monkeys-memory compile [--repo <repo>]
   monkeys-memory retrieve [--workspace <repo-dir>] [--repo <repo>] [--path <path>] [--task <task>] [--format json|md]
-  monkeys-memory capture --title <title> --claim <claim> [--workspace <repo-dir>] [--repo <repo>] [--path <path>] [--task <task>] [--kind rule|exception]
+  monkeys-memory capture --title <title> --claim <claim> [--workspace <repo-dir>] [--repo <repo>] [--path <path>] [--task <task>] [--kind rule|exception] [--auto]
   monkeys-memory sync [--no-pull] [--from-ref <ref>] [--to-ref <ref>]
+  monkeys-memory status [--repo <repo>]
+  monkeys-memory list --repo <repo> [--status active|deprecated] [--kind rule|exception] [--path <glob>] [--format json|table]
+  monkeys-memory deprecate --repo <repo> --id <experience-id>
 EOF
     exit 1
     ;;

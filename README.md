@@ -14,11 +14,16 @@ This release includes:
 
 - allowlist-based repo activation
 - repo-scoped raw experience storage
-- compiled memory generation
-- runtime retrieval by repo, path, and task
+- compiled memory generation with fuzzy claim merging and conflict detection
+- confidence decay for aging experiences
+- runtime retrieval by repo, path, and task with task type normalization
+- org-level cross-repo rule compilation
 - auto-init for new allowlisted repos
 - auto-compile after capture
+- auto-capture from git history (`--auto` mode)
 - post-merge sync for affected repos only
+- experience lifecycle management (deprecation)
+- first-class Claude Code and Codex integration
 
 ## Why
 
@@ -59,12 +64,13 @@ cd ~/monkeys-memory
 ./install.sh
 ```
 
-Install does four things:
+Install does the following:
 
 1. Links the two Codex skills into `~/.codex/skills/`
-2. Installs a stable command entrypoint at `~/.monkeys-memory/bin/monkeys-memory`
-3. Runs an initial compile
-4. Configures a `post-merge` hook for pull-triggered sync
+2. Installs Claude Code commands into `~/.claude/commands/` (if Claude Code is detected)
+3. Installs a stable command entrypoint at `~/.monkeys-memory/bin/monkeys-memory`
+4. Runs an initial compile
+5. Configures a `post-merge` hook for pull-triggered sync
 
 When installed from a git checkout, hooks are enabled by default for the `monkeys-memory` repo itself, and the installer prints that explicitly.
 
@@ -108,14 +114,50 @@ Rules:
 
 See the synthetic sample layout under [`examples/sample-memory/`](examples/sample-memory/) for a safe public example.
 
-After that, the main commands are:
+## Commands
 
 ```bash
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" compile
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" retrieve --workspace /path/to/repo --task bugfix
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace /path/to/repo --task bugfix --title "..." --claim "..."
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" sync
+# Core workflow
+monkeys-memory compile [--repo <repo>]
+monkeys-memory retrieve [--workspace <dir>] [--repo <repo>] [--path <path>] [--task <task>] [--format json|md]
+monkeys-memory capture --title <title> --claim <claim> [--workspace <dir>] [--repo <repo>] [--path <path>] [--task <task>] [--kind rule|exception]
+monkeys-memory capture --auto [--workspace <dir>]
+monkeys-memory sync [--no-pull] [--from-ref <ref>] [--to-ref <ref>]
+
+# Management
+monkeys-memory status [--repo <repo>]
+monkeys-memory list --repo <repo> [--status active|deprecated] [--kind rule|exception] [--path <glob>] [--format json|table]
+monkeys-memory deprecate --repo <repo> --id <experience-id>
 ```
+
+Or via npm:
+
+```bash
+npm run compile
+npm run retrieve -- --workspace /path/to/repo --task bugfix
+npm run capture -- --workspace /path/to/repo --task bugfix --title "..." --claim "..."
+npm run capture -- --auto --workspace /path/to/repo
+npm run sync
+npm run status
+npm run list -- --repo sample-app
+npm run deprecate -- --repo sample-app --id exp_2026_03_24_001
+npm test
+```
+
+## Configuration
+
+`memory.config.json` supports the following options:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `org` | `"default-org"` | Organization name |
+| `memoryRoot` | `".monkeys-memory"` | Path to memory data directory |
+| `onboardingRuleLimit` | `10` | Max rules in onboarding digest |
+| `runtimeRuleLimit` | `5` | Max rules returned at runtime |
+| `fuzzyMergeThreshold` | `0.7` | Jaccard similarity threshold for merging similar claims (1.0 = disabled) |
+| `confidenceDecayStartDays` | `90` | Days before confidence starts decaying |
+| `confidenceDecayRatePerMonth` | `0.02` | Confidence reduction per month after decay starts |
+| `confidenceDecayMax` | `0.2` | Maximum total confidence reduction from decay |
 
 ## Repo Allowlist
 
@@ -158,22 +200,50 @@ Compile runs at four moments:
 - after `git pull` on the memory repo, via `post-merge`, for affected repos only
 - during `retrieve` only if compiled outputs are missing or stale
 
+## Key Features
+
+### Fuzzy Claim Merging
+
+When multiple team members capture similar insights with different wording, the compiler merges them using token-level Jaccard similarity. This prevents duplicate rules while preserving unique perspectives. Configure the threshold in `memory.config.json`.
+
+### Confidence Decay
+
+Old experiences gradually lose confidence over time, ensuring that the most recent team knowledge carries more weight. Experiences keep full confidence for 90 days by default, then slowly decay.
+
+### Conflict Detection
+
+When two rules with overlapping scope contain contradictory claims (e.g., "always do X" vs "never do X"), the compiler annotates them with `conflicts_with` references so the AI agent can make informed decisions.
+
+### Auto Capture
+
+Use `capture --auto` to automatically extract experience from the last git commit. It infers title, claim, paths, and task type from the commit message and diff. Auto-captured experiences have lower default confidence (0.5) than manual captures (0.7).
+
+### Experience Lifecycle
+
+Mark outdated experiences as deprecated with the `deprecate` command. Deprecated experiences are excluded from future compilations but preserved for historical reference.
+
 ## Support Matrix
 
 | Capability | Availability | Notes |
 | --- | --- | --- |
 | Codex skills | Yes | `install.sh` links `org-memory-use` and `org-memory-capture` into `~/.codex/skills/` |
-| Claude Code integration | CLI-compatible | Claude Code can use the same CLI flow; a dedicated install path is not bundled in this repo |
+| Claude Code integration | Yes | `install.sh` installs commands into `~/.claude/commands/` and provides `CLAUDE.md` |
 | Allowlist-based activation | Yes | Only approved repos get memory behavior |
 | Auto-init for new repos | Yes | Adding a repo to the allowlist is enough |
 | Repo-managed compile | Yes | `compile` and `capture` run directly from the memory repo CLI |
 | Pull-triggered selective compile | Yes | `post-merge` runs `sync` and recompiles affected repos only |
+| Fuzzy claim merging | Yes | Configurable Jaccard threshold |
+| Conflict detection | Yes | Annotates contradictory rules |
+| Confidence decay | Yes | Configurable decay curve |
+| Auto capture | Yes | `capture --auto` extracts from git history |
+| Experience deprecation | Yes | `deprecate` command + filtered during compile |
 | Central online compiler | Not included | This release works without a hosted control plane |
 
 ## Project Layout
 
 ```text
 monkeys-memory/
+  CLAUDE.md
   examples/
   schemas/
   scripts/
@@ -185,24 +255,12 @@ Local private data created after install:
   .monkeys-memory/
 ```
 
-## Commands
-
-```bash
-./install.sh
-./install.sh --no-hooks
-npm run compile
-npm run retrieve -- --workspace /path/to/repo --task bugfix
-npm run capture -- --workspace /path/to/repo --task bugfix --title "..." --claim "..."
-npm run sync
-npm test
-```
-
 ## Future Directions
 
 - fully automatic experience extraction from real sessions
-- first-class Claude Code install path
 - hosted compile/control plane
 - effect measurement across a real team
+- vector-based semantic retrieval for larger knowledge bases
 
 ## Internal Notes
 

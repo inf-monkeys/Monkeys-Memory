@@ -17,6 +17,9 @@
     "capture": "node scripts/capture-experience.mjs",
     "retrieve": "node scripts/retrieve-memory.mjs",
     "sync": "node scripts/sync-memory.mjs",
+    "status": "node scripts/status-memory.mjs",
+    "list": "node scripts/list-experiences.mjs",
+    "deprecate": "node scripts/deprecate-experience.mjs",
     "test": "node --test"
   },
   "engines": {

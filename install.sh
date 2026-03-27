@@ -75,6 +75,32 @@ ln -sfn "${REPO_ROOT}/skills/org-memory-capture" "${CODEX_SKILLS_DIR}/org-memory
 ln -sfn "${REPO_ROOT}" "${MONKEYS_MEMORY_HOME}/repo"
 ln -sfn "${REPO_ROOT}/bin/monkeys-memory" "${MONKEYS_MEMORY_BIN_DIR}/monkeys-memory"
 
+# Claude Code integration
+CLAUDE_CODE_STATUS="not-detected"
+CLAUDE_DIR="${HOME}/.claude"
+if [ -d "${CLAUDE_DIR}" ]; then
+  CLAUDE_COMMANDS_DIR="${CLAUDE_DIR}/commands"
+  mkdir -p "${CLAUDE_COMMANDS_DIR}"
+
+  cat > "${CLAUDE_COMMANDS_DIR}/monkeys-memory-retrieve.md" <<CCEOF
+# Retrieve team memory for the current repo
+bash "\$HOME/.monkeys-memory/bin/monkeys-memory" retrieve --workspace "\$(pwd)" --task \$ARGUMENTS
+CCEOF
+
+  cat > "${CLAUDE_COMMANDS_DIR}/monkeys-memory-capture.md" <<CCEOF
+# Capture a new experience for the current repo
+bash "\$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "\$(pwd)" \$ARGUMENTS
+CCEOF
+
+  cat > "${CLAUDE_COMMANDS_DIR}/monkeys-memory-status.md" <<CCEOF
+# Show monkeys-memory status
+bash "\$HOME/.monkeys-memory/bin/monkeys-memory" status
+CCEOF
+
+  cp "${REPO_ROOT}/CLAUDE.md" "${MONKEYS_MEMORY_HOME}/CLAUDE.md"
+  CLAUDE_CODE_STATUS="installed"
+fi
+
 if [ "${ENABLE_HOOKS}" -eq 1 ]; then
   if git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git -C "${REPO_ROOT}" config core.hooksPath .githooks
@@ -91,6 +117,16 @@ fi
 echo "Installed Codex skills:"
 echo "  - ${CODEX_SKILLS_DIR}/org-memory-use"
 echo "  - ${CODEX_SKILLS_DIR}/org-memory-capture"
+echo
+echo "Claude Code integration:"
+if [ "${CLAUDE_CODE_STATUS}" = "installed" ]; then
+  echo "  - commands installed to ${CLAUDE_DIR}/commands/"
+  echo "  - CLAUDE.md copied to ${MONKEYS_MEMORY_HOME}/CLAUDE.md"
+  echo "  - use /monkeys-memory-retrieve and /monkeys-memory-capture in Claude Code"
+else
+  echo "  - ~/.claude not detected; skipped"
+  echo "  - install Claude Code first, then rerun ./install.sh"
+fi
 echo
 echo "Installed command:"
 echo "  - ${MONKEYS_MEMORY_BIN_DIR}/monkeys-memory"

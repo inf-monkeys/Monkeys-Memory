@@ -6,16 +6,30 @@ export async function getAllowlistPath(projectRoot) {
   return path.join(projectRoot, config.memoryRoot, "org", "repo-allowlist.json");
 }
 
+const _allowlistCache = new Map();
+
+export function clearAllowlistCache() {
+  _allowlistCache.clear();
+}
+
 export async function readRepoAllowlist(projectRoot) {
+  if (_allowlistCache.has(projectRoot)) {
+    return _allowlistCache.get(projectRoot);
+  }
+
   const allowlistPath = await getAllowlistPath(projectRoot);
+  let allowlist;
   if (!(await pathExists(allowlistPath))) {
-    return {
+    allowlist = {
       version: 1,
       repos: [],
     };
+  } else {
+    allowlist = await readJson(allowlistPath);
   }
 
-  return readJson(allowlistPath);
+  _allowlistCache.set(projectRoot, allowlist);
+  return allowlist;
 }
 
 export async function isRepoAllowed(projectRoot, repoName) {

@@ -69,9 +69,10 @@ export async function syncProject(projectRoot, options = {}) {
   const affectedRepos = await detectAffectedRepos(projectRoot, changedFiles);
   const summaries = [];
 
-  for (const repoName of affectedRepos) {
-    summaries.push(await compileRepo(projectRoot, repoName));
-  }
+  const results = await Promise.all(
+    affectedRepos.map((repoName) => compileRepo(projectRoot, repoName)),
+  );
+  summaries.push(...results);
 
   return {
     pulled: !options.noPull,

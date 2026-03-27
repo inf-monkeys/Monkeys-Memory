@@ -34,15 +34,34 @@ bash "$HOME/.monkeys-memory/bin/monkeys-memory" retrieve --workspace "<current-r
    - confidence is low
    - the user explicitly asks for evidence or source history
 
+## Retrieval Priority
+
+The retriever scores rules using multiple signals:
+
+1. Repo-level compiled rules (primary source)
+2. Org-level cross-repo rules (lower weight, appears when patterns repeat across repos)
+3. Path specificity (more specific path matches score higher)
+4. Task type matching (rules tagged for the current task score higher)
+5. Confidence score (higher confidence scores higher)
+
+Global rules (scope `**`) always receive a base score even without a specific path context.
+
 ## Rules
 
 - Default to `Compiled Memory`, not `Raw Experiences`
 - Keep runtime context small
 - Preserve exceptions when they are relevant
+- Pay attention to `conflicts_with` annotations — they indicate contradictory rules with overlapping scope
 - If the current repo is not in the allowlist, do nothing and continue without memory
 - The `retrieve` CLI recompiles missing or stale compiled outputs automatically
 - Only suggest a manual compile if retrieval fails and the compiled state still needs to be refreshed:
 
 ```bash
 bash "$HOME/.monkeys-memory/bin/monkeys-memory" compile
+```
+
+- Check project status with:
+
+```bash
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" status
 ```
