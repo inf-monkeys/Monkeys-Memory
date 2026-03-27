@@ -5,7 +5,7 @@ A shared memory layer for coding agents (Claude Code + Codex).
 ## Development
 
 - Node 22+ required
-- `npm test` to run tests (41 tests)
+- `npm test` to run tests
 - `./install.sh` to set up skills and CLI
 - `./install.sh --no-hooks` to skip git hooks
 
