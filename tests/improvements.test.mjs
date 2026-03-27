@@ -193,5 +193,61 @@ test("input validation catches invalid kind", async () => {
     }, null, 2) + "\n",
   );
 
-  await assert.rejects(() => compileProject(root), /invalid kind/);
+  // loadExperiences now catches errors and warns, so compile succeeds with 0 experiences
+  const summaries = await compileProject(root);
+  assert.equal(summaries[0].sourceExperienceCount, 0);
+});
+
+test("corrupted JSON files are skipped gracefully", async () => {
+  const root = await createFixture();
+  const dir = path.join(root, ".monkeys-memory", "repos", "test-repo", "experiences");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, "corrupt.json"), "{ not valid json\n");
+  await writeExperience(root, "test-repo", makeExp({ id: "good_1", title: "Good rule", claim: "This works." }));
+
+  const summaries = await compileProject(root);
+  assert.equal(summaries[0].sourceExperienceCount, 1);
+  assert.equal(summaries[0].ruleCount, 1);
+});
+
+test("Promise.allSettled allows partial compilation success", async () => {
+  // This tests that if one repo has issues, other repos still compile
+  const root = await createFixture({ repos: ["repo-ok", "repo-bad"] });
+  await writeExperience(root, "repo-ok", makeExp({ id: "ok_1", repo: "repo-ok", title: "OK rule", claim: "This is fine." }));
+  // repo-bad has no experiences, should compile with 0 rules (not fail)
+  const summaries = await compileProject(root);
+  assert.equal(summaries.length, 2);
+  const ok = summaries.find((s) => s.repo === "repo-ok");
+  assert.equal(ok.ruleCount, 1);
+});
+
+test("config validation clamps invalid values", async () => {
+  clearConfigCache();
+  clearAllowlistCache();
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mm-test-"));
+  await fs.writeFile(path.join(root, "memory.config.json"), JSON.stringify({
+    org: "test-org",
+    memoryRoot: ".monkeys-memory",
+    fuzzyMergeThreshold: -0.5,
+    confidenceDecayStartDays: -10,
+    runtimeRuleLimit: -3,
+    onboardingRuleLimit: 0,
+  }, null, 2) + "\n");
+
+  const { readConfig, clearConfigCache: cc } = await import("../scripts/lib/utils.mjs");
+  cc();
+  const config = await readConfig(root);
+  assert.ok(config.fuzzyMergeThreshold >= 0);
+  assert.ok(config.confidenceDecayStartDays >= 0);
+  assert.ok(config.runtimeRuleLimit >= 1);
+  assert.ok(config.onboardingRuleLimit >= 1);
+});
+
+test("readJson gives clear error for corrupt files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mm-test-"));
+  const badFile = path.join(root, "bad.json");
+  await fs.writeFile(badFile, "not json at all\n");
+
+  const { readJson } = await import("../scripts/lib/utils.mjs");
+  await assert.rejects(() => readJson(badFile), /Failed to parse JSON/);
 });

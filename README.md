@@ -218,6 +218,10 @@ When two rules with overlapping scope contain contradictory claims (e.g., "alway
 
 Use `capture --auto` to automatically extract experience from the last git commit. It infers title, claim, paths, and task type from the commit message and diff. Auto-captured experiences have lower default confidence (0.5) than manual captures (0.7).
 
+### Org-Level Rules
+
+When the same claim appears in rules compiled from 2+ different repos, the compiler promotes it to an org-level rule. These rules are stored in `.monkeys-memory/org/compiled/org-rules.json` and are included in retrieval results at a lower weight than repo-specific rules. This surfaces cross-repo patterns that individual developers may not be aware of.
+
 ### Experience Lifecycle
 
 Mark outdated experiences as deprecated with the `deprecate` command. Deprecated experiences are excluded from future compilations but preserved for historical reference.
@@ -254,6 +258,31 @@ monkeys-memory/
 Local private data created after install:
   .monkeys-memory/
 ```
+
+## Troubleshooting
+
+**Retrieve returns no rules**
+- Check `monkeys-memory status` to see if the repo is allowlisted and compiled
+- Run `monkeys-memory compile` to regenerate compiled outputs
+- Verify your experience files are valid JSON with `monkeys-memory list --repo <repo>`
+
+**Compilation fails**
+- Check for corrupted JSON files in `.monkeys-memory/repos/<repo>/experiences/`
+- Corrupted files are skipped with a warning; look for `[monkeys-memory] warning:` in stderr
+- Verify `memory.config.json` has valid values (invalid values are auto-clamped)
+
+**Conflicts detected**
+- Run `monkeys-memory retrieve` and look for `Conflicts with:` annotations
+- Review the conflicting rules and consider deprecating one: `monkeys-memory deprecate --repo <repo> --id <id>`
+- Conflicts often indicate a rule that should be an exception instead
+
+**Auto capture produces low-quality insights**
+- Auto-captured experiences have 0.5 confidence (vs 0.7 for manual)
+- Review auto-captured items with `monkeys-memory list --repo <repo>` and deprecate unhelpful ones
+- Prefer manual capture for nuanced insights
+
+**All commands support `--help`**
+- Run any command with `--help` or `-h` for usage info
 
 ## Future Directions
 

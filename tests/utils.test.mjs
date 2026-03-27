@@ -10,6 +10,8 @@ import {
   normalizeEvidenceType,
   normalizeTaskType,
   normalizeText,
+  padLeft,
+  padRight,
   slugify,
   specificity,
   uniqueSorted,
@@ -105,4 +107,30 @@ test("formatError formats error messages", () => {
 test("formatError handles string errors", () => {
   const result = formatError("capture", "invalid input");
   assert.equal(result, "[monkeys-memory] capture: invalid input");
+});
+
+test("globToRegExp handles patterns without path separators", () => {
+  assert.equal(matchGlob("*.ts", "app.ts"), true);
+  assert.equal(matchGlob("*.ts", "app.js"), false);
+});
+
+test("globToRegExp handles nested ** correctly", () => {
+  assert.equal(matchGlob("**/test/**", "src/test/unit/foo.js"), true);
+  assert.equal(matchGlob("**/test/**", "test/foo.js"), true);
+});
+
+test("globToRegExp escapes regex special chars", () => {
+  assert.equal(matchGlob("src/app.ts", "src/app.ts"), true);
+  assert.equal(matchGlob("src/app.ts", "src/appXts"), false);
+});
+
+test("matchGlob handles unclosed bracket as literal", () => {
+  assert.equal(matchGlob("src/[broken", "src/[broken"), true);
+});
+
+test("padRight and padLeft work correctly", () => {
+  assert.equal(padRight("hi", 5), "hi   ");
+  assert.equal(padRight("hello", 3), "hello");
+  assert.equal(padLeft("42", 5), "   42");
+  assert.equal(padLeft("hello", 3), "hello");
 });

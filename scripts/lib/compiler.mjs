@@ -223,6 +223,9 @@ function detectConflicts(rules) {
 }
 
 function mergeExperiences(kind, experiences) {
+  if (experiences.length === 0) {
+    throw new Error("[monkeys-memory] mergeExperiences called with empty array");
+  }
   const first = experiences[0];
   const sourceCount = experiences.length;
   const evidenceCount = experiences.reduce((total, experience) => total + (experience.evidence?.length ?? 0), 0);
@@ -293,7 +296,7 @@ function buildPathIndex(rulePack) {
 
 function buildOnboardingMarkdown(rulePack, config) {
   const topRules = rulePack.rules.slice(0, config.onboardingRuleLimit);
-  const topExceptions = rulePack.exceptions.slice(0, 5);
+  const topExceptions = rulePack.exceptions.slice(0, config.onboardingExceptionLimit ?? 5);
   const lines = [
     `# Onboarding Digest: ${rulePack.repo}`,
     "",
@@ -330,17 +333,28 @@ async function loadExperiences(repoDir, config) {
   const experienceDir = path.join(repoDir, "experiences");
   const files = await listJsonFiles(experienceDir);
   const loaded = [];
+  const errors = [];
 
   for (const filePath of files) {
-    const experience = await readJson(filePath);
-    validateExperience(experience, filePath);
-    if (experience.status === "deprecated") continue;
-    if (!experience.updated_at) {
-      const stat = await fs.stat(filePath);
-      experience.updated_at = stat.mtime.toISOString();
+    try {
+      const experience = await readJson(filePath);
+      validateExperience(experience, filePath);
+      if (experience.status === "deprecated") continue;
+      if (!experience.updated_at) {
+        const stat = await fs.stat(filePath);
+        experience.updated_at = stat.mtime.toISOString();
+      }
+      applyConfidenceDecay(experience, config);
+      loaded.push(experience);
+    } catch (error) {
+      errors.push({ file: filePath, error: error.message });
     }
-    applyConfidenceDecay(experience, config);
-    loaded.push(experience);
+  }
+
+  if (errors.length > 0) {
+    for (const { file, error } of errors) {
+      console.error(`[monkeys-memory] warning: skipped ${file}: ${error}`);
+    }
   }
 
   return loaded;
@@ -425,10 +439,16 @@ export async function compileProject(projectRoot, options = {}) {
     });
   }
 
-  const results = await Promise.all(
+  const results = await Promise.allSettled(
     selectedRepoNames.map((repoName) => compileRepo(projectRoot, repoName)),
   );
-  summaries.push(...results);
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      summaries.push(result.value);
+    } else {
+      console.error(`[monkeys-memory] compile failed: ${result.reason?.message ?? result.reason}`);
+    }
+  }
 
   const orgCompiledDir = path.join(projectRoot, config.memoryRoot, "org", "compiled");
   await ensureDir(orgCompiledDir);

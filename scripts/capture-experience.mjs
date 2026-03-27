@@ -40,7 +40,10 @@ function parseArgs(argv) {
     const token = argv[index];
     const next = argv[index + 1] ?? null;
 
-    if (token === "--workspace") {
+    if (token === "--help" || token === "-h") {
+      console.log("Usage: monkeys-memory capture --title <title> --claim <claim> [--workspace <dir>] [--repo <repo>] [--path <path>] [--task <task>] [--kind rule|exception] [--auto]");
+      process.exit(0);
+    } else if (token === "--workspace") {
       args.workspace = next ?? args.workspace;
       index += 1;
     } else if (token === "--repo") {
@@ -140,91 +143,97 @@ async function autoExtract(workspace) {
 }
 
 const projectRoot = path.resolve(path.join(import.meta.dirname, ".."));
-const args = parseArgs(process.argv.slice(2));
-const config = await readConfig(projectRoot);
-const context = await resolveRepoContext(args);
 
-if (!(await isRepoAllowed(projectRoot, context.repo))) {
-  console.log(`skipped capture for ${context.repo}: repo not in allowlist`);
-  process.exit(0);
+try {
+  const args = parseArgs(process.argv.slice(2));
+  const config = await readConfig(projectRoot);
+  const context = await resolveRepoContext(args);
+
+  if (!(await isRepoAllowed(projectRoot, context.repo))) {
+    console.log(`skipped capture for ${context.repo}: repo not in allowlist`);
+    process.exit(0);
+  }
+
+  await ensureRepoInitialized(projectRoot, config.memoryRoot, context.repo);
+
+  let title = args.title;
+  let claim = args.claim;
+  let autoData = null;
+
+  if (args.auto) {
+    autoData = await autoExtract(context.workspace);
+    title = args.title ?? autoData.title;
+    claim = args.claim ?? autoData.claim;
+  }
+
+  const now = new Date();
+  const isoNow = now.toISOString();
+  const datePrefix = isoNow.slice(0, 10).replaceAll("-", "_");
+  const uniqueSuffix = String(Date.now()).slice(-6);
+  const recordId = `exp_${datePrefix}_${uniqueSuffix}_${slugify(title).slice(0, 20)}`;
+
+  const scopePaths = args.path
+    ? parseMultiValue(args.path)
+    : autoData?.paths
+      ? autoData.paths
+      : context.path
+        ? [context.path]
+        : ["**"];
+
+  const rawTaskTypes = args.task
+    ? parseMultiValue(args.task)
+    : autoData?.taskType
+      ? [autoData.taskType]
+      : context.task
+        ? [context.task]
+        : [];
+
+  const taskTypes = rawTaskTypes.map(normalizeTaskType);
+  const evidenceType = args.evidenceType ? normalizeEvidenceType(args.evidenceType) : null;
+
+  const experience = {
+    id: recordId,
+    org: config.org,
+    repo: context.repo,
+    kind: args.kind,
+    title,
+    claim,
+    scope: {
+      paths: scopePaths,
+      task_types: taskTypes,
+    },
+    evidence:
+      evidenceType && args.evidenceRef
+        ? [
+            {
+              type: evidenceType,
+              ref: args.evidenceRef,
+            },
+          ]
+        : [],
+    source: {
+      author: args.author,
+      session: args.session,
+    },
+    confidence: args.auto ? 0.5 : 0.7,
+    status: "active",
+    updated_at: isoNow,
+  };
+
+  const outputPath = path.join(
+    projectRoot,
+    config.memoryRoot,
+    "repos",
+    context.repo,
+    "experiences",
+    `${recordId}.json`,
+  );
+
+  await writeJson(outputPath, experience);
+  await compileRepo(projectRoot, context.repo);
+
+  console.log(`captured experience for ${context.repo}: ${outputPath}`);
+} catch (error) {
+  console.error(`[monkeys-memory] capture failed: ${error.message}`);
+  process.exit(1);
 }
-
-await ensureRepoInitialized(projectRoot, config.memoryRoot, context.repo);
-
-let title = args.title;
-let claim = args.claim;
-let autoData = null;
-
-if (args.auto) {
-  autoData = await autoExtract(context.workspace);
-  title = args.title ?? autoData.title;
-  claim = args.claim ?? autoData.claim;
-}
-
-const now = new Date();
-const isoNow = now.toISOString();
-const datePrefix = isoNow.slice(0, 10).replaceAll("-", "_");
-const uniqueSuffix = String(Date.now()).slice(-6);
-const recordId = `exp_${datePrefix}_${uniqueSuffix}_${slugify(title).slice(0, 20)}`;
-
-const scopePaths = args.path
-  ? parseMultiValue(args.path)
-  : autoData?.paths
-    ? autoData.paths
-    : context.path
-      ? [context.path]
-      : ["**"];
-
-const rawTaskTypes = args.task
-  ? parseMultiValue(args.task)
-  : autoData?.taskType
-    ? [autoData.taskType]
-    : context.task
-      ? [context.task]
-      : [];
-
-const taskTypes = rawTaskTypes.map(normalizeTaskType);
-const evidenceType = args.evidenceType ? normalizeEvidenceType(args.evidenceType) : null;
-
-const experience = {
-  id: recordId,
-  org: config.org,
-  repo: context.repo,
-  kind: args.kind,
-  title,
-  claim,
-  scope: {
-    paths: scopePaths,
-    task_types: taskTypes,
-  },
-  evidence:
-    evidenceType && args.evidenceRef
-      ? [
-          {
-            type: evidenceType,
-            ref: args.evidenceRef,
-          },
-        ]
-      : [],
-  source: {
-    author: args.author,
-    session: args.session,
-  },
-  confidence: args.auto ? 0.5 : 0.7,
-  status: "active",
-  updated_at: isoNow,
-};
-
-const outputPath = path.join(
-  projectRoot,
-  config.memoryRoot,
-  "repos",
-  context.repo,
-  "experiences",
-  `${recordId}.json`,
-);
-
-await writeJson(outputPath, experience);
-await compileRepo(projectRoot, context.repo);
-
-console.log(`captured experience for ${context.repo}: ${outputPath}`);

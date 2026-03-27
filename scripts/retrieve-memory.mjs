@@ -13,7 +13,10 @@ function parseArgs(argv) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
-    if (token === "--workspace") {
+    if (token === "--help" || token === "-h") {
+      console.log("Usage: monkeys-memory retrieve [--workspace <dir>] [--repo <repo>] [--path <path>] [--task <task>] [--format json|md]");
+      process.exit(0);
+    } else if (token === "--workspace") {
       args.workspace = argv[index + 1] ?? args.workspace;
       index += 1;
     } else if (token === "--repo") {
@@ -34,13 +37,18 @@ function parseArgs(argv) {
   return args;
 }
 
-const projectRoot = path.resolve(path.join(import.meta.dirname, ".."));
-const args = parseArgs(process.argv.slice(2));
-const resolved = await resolveRepoContext(args);
-const context = await retrieveContext(projectRoot, resolved);
+try {
+  const projectRoot = path.resolve(path.join(import.meta.dirname, ".."));
+  const args = parseArgs(process.argv.slice(2));
+  const resolved = await resolveRepoContext(args);
+  const context = await retrieveContext(projectRoot, resolved);
 
-if (args.format === "json") {
-  console.log(JSON.stringify(context, null, 2));
-} else {
-  console.log(formatContextMarkdown(context));
+  if (args.format === "json") {
+    console.log(JSON.stringify(context, null, 2));
+  } else {
+    console.log(formatContextMarkdown(context));
+  }
+} catch (error) {
+  console.error(`[monkeys-memory] retrieve failed: ${error.message}`);
+  process.exit(1);
 }

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { compileRepo } from "./compiler.mjs";
@@ -16,7 +17,8 @@ async function runGit(projectRoot, args) {
 async function maybeRunGit(projectRoot, args) {
   try {
     return await runGit(projectRoot, args);
-  } catch {
+  } catch (error) {
+    console.error(`[monkeys-memory] git ${args[0]} failed: ${error.message}`);
     return "";
   }
 }
@@ -38,14 +40,15 @@ export async function detectAffectedRepos(projectRoot, changedFiles) {
   const affectedRepos = new Set();
 
   for (const filePath of changedFiles) {
-    if (filePath === "memory.config.json" || filePath.startsWith(".monkeys-memory/org/")) {
+    const normalized = filePath.split(path.sep).join("/");
+    if (normalized === "memory.config.json" || normalized.startsWith(".monkeys-memory/org/")) {
       for (const repoName of allowedRepos) {
         affectedRepos.add(repoName);
       }
       continue;
     }
 
-    const match = filePath.match(/^\.monkeys-memory\/repos\/([^/]+)\/experiences\//);
+    const match = normalized.match(/^\.monkeys-memory\/repos\/([^/]+)\/experiences\//);
     if (match && allowedRepos.includes(match[1])) {
       affectedRepos.add(match[1]);
     }
@@ -69,10 +72,16 @@ export async function syncProject(projectRoot, options = {}) {
   const affectedRepos = await detectAffectedRepos(projectRoot, changedFiles);
   const summaries = [];
 
-  const results = await Promise.all(
+  const results = await Promise.allSettled(
     affectedRepos.map((repoName) => compileRepo(projectRoot, repoName)),
   );
-  summaries.push(...results);
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      summaries.push(result.value);
+    } else {
+      console.error(`[monkeys-memory] sync compile failed: ${result.reason?.message ?? result.reason}`);
+    }
+  }
 
   return {
     pulled: !options.noPull,

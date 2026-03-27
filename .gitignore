@@ -1,4 +1,13 @@
 .DS_Store
+Thumbs.db
 node_modules/
 internal-docs/
 .monkeys-memory/
+*.log
+.env
+.env.*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

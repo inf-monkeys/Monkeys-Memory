@@ -16,7 +16,11 @@ export async function ensureDir(targetPath) {
 
 export async function readJson(filePath) {
   const raw = await fs.readFile(filePath, "utf8");
-  return JSON.parse(raw);
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Failed to parse JSON in ${filePath}: ${error.message}`);
+  }
 }
 
 export async function writeJson(filePath, value) {
@@ -199,6 +203,28 @@ export function clearConfigCache() {
   _configCache.clear();
 }
 
+function validateConfig(config) {
+  if (typeof config.onboardingRuleLimit === "number") {
+    config.onboardingRuleLimit = Math.max(1, Math.floor(config.onboardingRuleLimit));
+  }
+  if (typeof config.runtimeRuleLimit === "number") {
+    config.runtimeRuleLimit = Math.max(1, Math.floor(config.runtimeRuleLimit));
+  }
+  if (typeof config.fuzzyMergeThreshold === "number") {
+    config.fuzzyMergeThreshold = clamp(config.fuzzyMergeThreshold, 0, 1);
+  }
+  if (typeof config.confidenceDecayStartDays === "number") {
+    config.confidenceDecayStartDays = Math.max(0, config.confidenceDecayStartDays);
+  }
+  if (typeof config.confidenceDecayRatePerMonth === "number") {
+    config.confidenceDecayRatePerMonth = clamp(config.confidenceDecayRatePerMonth, 0, 1);
+  }
+  if (typeof config.confidenceDecayMax === "number") {
+    config.confidenceDecayMax = clamp(config.confidenceDecayMax, 0, 1);
+  }
+  return config;
+}
+
 export async function readConfig(projectRoot) {
   if (_configCache.has(projectRoot)) {
     return _configCache.get(projectRoot);
@@ -217,6 +243,15 @@ export async function readConfig(projectRoot) {
     config = await readJson(configPath);
   }
 
+  config = validateConfig(config);
   _configCache.set(projectRoot, config);
   return config;
+}
+
+export function padRight(str, len) {
+  return str.length >= len ? str : str + " ".repeat(len - str.length);
+}
+
+export function padLeft(str, len) {
+  return str.length >= len ? str : " ".repeat(len - str.length) + str;
 }
