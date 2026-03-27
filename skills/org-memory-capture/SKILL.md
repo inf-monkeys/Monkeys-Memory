@@ -1,80 +1,50 @@
 ---
 name: org-memory-capture
-description: Use this skill after code changes, debugging, or review in a repository that uses monkeys-memory. It captures new repo-specific project understanding as structured experiences and then refreshes compiled memory.
+description: Capture reusable engineering insights after code changes in an allowlisted repo. Use your judgment — only capture when the session produced knowledge that would save a future developer time or prevent a mistake.
 ---
 
 # Org Memory Capture
 
-This skill is the default write path for team memory.
+This skill lets you save team knowledge so the next developer doesn't repeat the same discovery.
 
-## When to use
+## When to capture
 
-- A coding task has just finished
-- A review surfaced a stable project rule or exception
-- A debugging session produced a reusable insight
-- The session changed how future contributors should approach a module
+Use your judgment. Capture when:
 
-## Workflow
+- You discovered a **non-obvious constraint** ("this module can't be changed without updating the adapter")
+- A debugging session revealed a **hidden dependency** or gotcha
+- A review surfaced a **stable rule** that applies to future changes in the same area
+- You made a decision that **future developers should know about** and wouldn't find in the code itself
 
-1. Decide whether the session produced reusable project understanding.
-2. Capture only stable engineering knowledge, not temporary phrasing.
-3. Capture the experience via the CLI instead of manually writing JSON when possible:
+Do NOT capture when:
 
-```bash
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "<current-repo>" --task <task> --title "<title>" --claim "<claim>"
-```
+- The fix was trivial and self-evident from the code
+- The insight is a personal preference, not a team convention
+- It's a temporary workaround that will be removed soon
+- It's generic programming advice not specific to this repo
 
-4. For automatic capture from recent commit history:
-
-```bash
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "<current-repo>" --auto
-```
-
-Auto mode extracts title and claim from the last commit message, infers paths from changed files, and sets a lower default confidence (0.5) since auto-extracted insights are less curated.
-
-5. This writes a new JSON file under:
-
-```text
-.monkeys-memory/repos/<repo>/experiences/
-```
-
-This path is inside the `monkeys-memory` repo, not the project repo being worked on.
-
-6. Follow [`experience.schema.json`](../../schemas/experience.schema.json).
-7. Keep the claim narrow and scoped.
-8. The capture CLI refreshes compiled memory for the current repo automatically after writing the experience.
-
-## Deprecating experiences
-
-To mark an experience as deprecated (it will be excluded from future compilations):
+## How to capture
 
 ```bash
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" deprecate --repo <repo> --id <experience-id>
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "<current-repo>" --task <task> --title "<short title>" --claim "<what future developers should know>"
 ```
 
-List all experiences to find IDs:
+Preview first with `--dry-run`:
 
 ```bash
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" list --repo <repo>
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" capture --workspace "<current-repo>" --auto --dry-run
 ```
 
-## What to capture
+Write a good claim:
+- Bad: "Fixed the bug in settlement"
+- Good: "Settlement changes must go through the adapter layer; direct service patches break the reconciliation job"
 
-- Path-specific development rules
-- Stable review guidance
-- Hidden module boundaries
-- Historical compatibility constraints
-- Testing or release caveats
-- Valid exceptions to normal rules
+## Auto-capture
 
-## What not to capture
+The post-commit hook runs `capture --auto` in the background after every commit. This produces lower-confidence (0.5) experiences from commit messages. You don't need to duplicate this manually.
 
-- Personal style preferences with no repo value
-- One-off workarounds with no reuse value
-- Prompt wording that does not express a real project insight
-- Generic coding advice unrelated to this repo
+If you have a **higher-quality insight** than what auto-capture would produce, capture it manually with a clear claim. Your manual capture (confidence 0.7) will carry more weight.
 
-## Repo Scope
+## Fallback
 
-- Only capture memory for repos that are present in the central allowlist
-- If the current repo is not in the allowlist, skip capture without treating it as an error
+If the CLI is not available or the repo is not in the allowlist, skip capture silently. Do not block on this.

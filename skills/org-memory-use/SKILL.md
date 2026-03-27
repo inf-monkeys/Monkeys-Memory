@@ -1,67 +1,54 @@
 ---
 name: org-memory-use
-description: Use this skill when starting or switching a coding task in a repository that uses monkeys-memory. It retrieves repo-specific compiled memory for the current repo, path, and task, and injects only the most relevant team experience instead of dumping all raw memory.
+description: Retrieve team memory before making code changes in an allowlisted repo. Use your judgment — skip for simple questions, retrieve when you are about to modify code or make decisions that could conflict with team conventions.
 ---
 
 # Org Memory Use
 
-This skill is the default read path for team memory.
+This skill gives you access to compiled team memory — rules, exceptions, and conventions that previous developers learned the hard way.
 
-## When to use
+## When to retrieve
 
-- A new coding session starts
-- The user moves into a new module or directory
-- The task changes between bugfix, refactor, feature work, or review
-- The current repo is expected to be covered by a shared `monkeys-memory` allowlist
+Use your judgment. Retrieve when:
 
-## Workflow
+- You are about to **modify code** and want to check if there are team rules for the affected paths
+- You are making an **architectural or design decision** and want to know if the team has conventions
+- You are doing a **bugfix, refactor, or review** in a module you haven't worked on before
+- The user asks you to work on a **complex or unfamiliar area** of the codebase
 
-1. Determine the current workspace and infer repo, path, and task type from the current repo state and user request.
-2. Prefer using the retrieval CLI first with auto-detection:
+Do NOT retrieve when:
+
+- The user is asking a simple question ("what does this function do?")
+- You are just reading code to understand it
+- The task is trivial and doesn't touch team conventions (renaming a variable, fixing a typo)
+- You already retrieved for this repo and path in the current session
+
+## How to retrieve
 
 ```bash
 bash "$HOME/.monkeys-memory/bin/monkeys-memory" retrieve --workspace "<current-repo>" --task <task>
 ```
 
-3. If direct file inspection is needed, inspect compiled outputs inside the `monkeys-memory` repo rather than the current work repo:
-   - `.monkeys-memory/repos/<repo>/compiled/rules.json`
-   - `.monkeys-memory/repos/<repo>/compiled/onboarding.md`
-   - `.monkeys-memory/repos/<repo>/compiled/path-index.json`
-4. Inject only the top 3 to 5 relevant rules into the working context.
-5. Do not load all raw experiences by default.
-6. Only inspect raw experiences if:
-   - compiled rules conflict
-   - confidence is low
-   - the user explicitly asks for evidence or source history
+Task types: `bugfix`, `hotfix`, `refactor`, `feature`, `review`
 
-## Retrieval Priority
+The CLI auto-detects the repo from the workspace directory. It returns the most relevant compiled rules for the current context.
 
-The retriever scores rules using multiple signals:
+## What you get back
 
-1. Repo-level compiled rules (primary source)
-2. Org-level cross-repo rules (lower weight, appears when patterns repeat across repos)
-3. Path specificity (more specific path matches score higher)
-4. Task type matching (rules tagged for the current task score higher)
-5. Confidence score (higher confidence scores higher)
+A short list of team rules ranked by relevance:
 
-Global rules (scope `**`) always receive a base score even without a specific path context.
+```
+1. **Route settlement changes through adapter first.**
+   Confidence: high | Sources: 3 | Scope: src/settlement/**
 
-## Rules
-
-- Default to `Compiled Memory`, not `Raw Experiences`
-- Keep runtime context small
-- Preserve exceptions when they are relevant
-- Pay attention to `conflicts_with` annotations — they indicate contradictory rules with overlapping scope
-- If the current repo is not in the allowlist, do nothing and continue without memory
-- The `retrieve` CLI recompiles missing or stale compiled outputs automatically
-- Only suggest a manual compile if retrieval fails and the compiled state still needs to be refreshed:
-
-```bash
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" compile
+2. **Always verify cache write-back after settlement changes.**
+   Confidence: medium | Sources: 1 | Scope: src/settlement/**
 ```
 
-- Check project status with:
+Apply these rules to your work. If rules conflict (marked with `Conflicts with:`), use your judgment based on the specific situation.
 
-```bash
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" status
-```
+## Fallback
+
+If the CLI is not available or the repo is not in the allowlist, just continue without memory. Do not block on this.
+
+If compiled outputs are missing, the CLI recompiles automatically. You do not need to run compile manually.
