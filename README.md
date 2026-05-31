@@ -149,6 +149,7 @@ monkeys-memory status [--repo <repo>]
 monkeys-memory list --repo <repo> [--status active|deprecated] [--kind rule|exception] [--path <glob>] [--format json|table]
 monkeys-memory init-repo --workspace <path> [--no-hooks]
 monkeys-memory deprecate --repo <repo> --id <experience-id>
+
 ```
 
 Or via npm:
@@ -179,6 +180,54 @@ npm test
 | `confidenceDecayStartDays` | `90` | Days before confidence starts decaying |
 | `confidenceDecayRatePerMonth` | `0.02` | Confidence reduction per month after decay starts |
 | `confidenceDecayMax` | `0.2` | Maximum total confidence reduction from decay |
+| `plugins` | `[]` | Local ESM compiler plugin files, resolved relative to the memory repo |
+| `embedding.enabled` | `false` | Enable local or plugin-backed embeddings for hybrid retrieval |
+| `embedding.provider` | `"local"` | Use `"local"`, `"noop"`, or `"plugin"` |
+| `embedding.plugin` | `null` | ESM file exporting an embedding provider factory when provider is `"plugin"` |
+
+## Access Simulation
+
+Use `simulate` to inspect what an agent would receive for a repo/path/task and
+what compiled memory is hidden by policy or version constraints:
+
+```bash
+monkeys-memory simulate --repo monkeys --path src/auth/token.ts --task feature
+monkeys-memory simulate --repo monkeys --path src/api.ts --task feature --branch main
+monkeys-memory simulate --repo monkeys --path src/api.ts --task feature --tag v2.0.0 --commit c000000
+monkeys-memory simulate --repo monkeys --path src/auth/token.ts --task feature --include-sensitive
+```
+
+JSON output includes `allowed` and `hidden` lists. Hidden items include reasons
+such as secret-adjacent sensitivity, blocked redaction status, branch mismatch,
+tag mismatch, or commit-range mismatch.
+
+## Compiler Plugins
+
+Plugins are local ESM files listed in `memory.config.json`:
+
+```json
+{
+  "plugins": ["plugins/memory-plugin.mjs"],
+  "embedding": { "enabled": true }
+}
+```
+
+A plugin may export these hooks:
+
+```js
+export async function beforeCompile(experiences, context) {
+  return experiences;
+}
+
+export async function afterCompile(rulePack, context) {
+  return rulePack;
+}
+
+```
+
+Hook context includes `org`, `repo`, `projectRoot`, `config`, `hook`, and
+`plugin`. `afterCompile` also receives `experienceCount`. Embedding plugins can export `createEmbeddingProvider`,
+which returns `{ name, dimensions, embed(text) }`.
 
 ## Repo Allowlist
 

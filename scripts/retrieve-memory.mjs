@@ -9,12 +9,19 @@ function parseArgs(argv) {
     path: null,
     task: null,
     format: "md",
+    includeSensitive: false,
+    branch: null,
+    tag: null,
+    commit: null,
+    userId: null,
+    teamId: null,
+    templateId: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--help" || token === "-h") {
-      console.log("Usage: monkeys-memory retrieve [--workspace <dir>] [--repo <repo>] [--path <path>] [--task <task>] [--format json|md]");
+      console.log("Usage: monkeys-memory retrieve [--workspace <dir>] [--repo <repo>] [--path <path>] [--task <task>] [--branch <name>] [--tag <tag>] [--commit <sha>] [--user <id>] [--team <id>] [--template <id>] [--include-sensitive] [--format json|md]");
       process.exit(0);
     } else if (token === "--workspace") {
       args.workspace = argv[index + 1] ?? args.workspace;
@@ -30,6 +37,26 @@ function parseArgs(argv) {
       index += 1;
     } else if (token === "--format") {
       args.format = argv[index + 1] ?? "md";
+      index += 1;
+    } else if (token === "--include-sensitive") {
+      args.includeSensitive = true;
+    } else if (token === "--branch") {
+      args.branch = argv[index + 1] ?? null;
+      index += 1;
+    } else if (token === "--tag") {
+      args.tag = argv[index + 1] ?? null;
+      index += 1;
+    } else if (token === "--commit") {
+      args.commit = argv[index + 1] ?? null;
+      index += 1;
+    } else if (token === "--user") {
+      args.userId = argv[index + 1] ?? null;
+      index += 1;
+    } else if (token === "--team") {
+      args.teamId = argv[index + 1] ?? null;
+      index += 1;
+    } else if (token === "--template") {
+      args.templateId = argv[index + 1] ?? null;
       index += 1;
     }
   }

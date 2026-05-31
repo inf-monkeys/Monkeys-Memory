@@ -45,6 +45,27 @@
       "items": {
         "$ref": "#/$defs/rule"
       }
+    },
+    "procedures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rule"
+      },
+      "default": []
+    },
+    "checklists": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rule"
+      },
+      "default": []
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rule"
+      },
+      "default": []
     }
   },
   "$defs": {
@@ -84,7 +105,7 @@
         "scope": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["paths", "task_types"],
+          "required": ["paths", "task_types", "entities"],
           "properties": {
             "paths": {
               "type": "array",
@@ -93,6 +114,12 @@
               }
             },
             "task_types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "entities": {
               "type": "array",
               "items": {
                 "type": "string"
@@ -128,6 +155,74 @@
             "minLength": 1
           }
         },
+        "quality_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "total": { "type": "number" },
+            "clarity": { "type": "number" },
+            "specificity": { "type": "number" },
+            "evidence_strength": { "type": "number" },
+            "freshness": { "type": "number" },
+            "conflict_risk": { "type": "number" },
+            "actionability": { "type": "number" }
+          }
+        },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": { "type": "string" },
+            "reason": { "type": ["string", "null"] },
+            "updated_at": { "type": "string", "format": "date-time" }
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "authors": { "$ref": "#/$defs/idList" },
+            "source_types": { "$ref": "#/$defs/idList" },
+            "evidence_refs": { "$ref": "#/$defs/idList" }
+          }
+        },
+        "relationships": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "supports": { "$ref": "#/$defs/idList" },
+            "contradicts": { "$ref": "#/$defs/idList" },
+            "supersedes": { "$ref": "#/$defs/idList" },
+            "superseded_by": { "$ref": "#/$defs/idList" },
+            "specializes": { "$ref": "#/$defs/idList" },
+            "generalizes": { "$ref": "#/$defs/idList" },
+            "related_to": { "$ref": "#/$defs/idList" }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "visibility": { "type": "string" },
+            "sensitivity": { "type": "string" },
+            "redaction_status": { "type": "string" }
+          }
+        },
+        "validity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branches": { "$ref": "#/$defs/idList" },
+            "valid_from_commit": { "type": ["string", "null"] },
+            "valid_until_commit": { "type": ["string", "null"] },
+            "tags": { "$ref": "#/$defs/idList" }
+          }
+        },
         "conflicts_with": {
           "type": "array",
           "items": {
@@ -135,6 +230,13 @@
             "minLength": 1
           }
         }
+      }
+    },
+    "idList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
       }
     }
   }

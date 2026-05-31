@@ -1,11 +1,11 @@
 ---
 name: org-memory-use
-description: Retrieve team memory before making code changes in an allowlisted repo. Use your judgment — skip for simple questions, retrieve when you are about to modify code or make decisions that could conflict with team conventions.
+description: Retrieve compiled team memory before making code changes in an allowlisted repo. Use your judgment — retrieve before modifying code, changing architecture, or reviewing unfamiliar paths, and pass the narrowest path/task context plus version or policy filters when relevant.
 ---
 
 # Org Memory Use
 
-This skill gives you access to compiled team memory — rules, exceptions, and conventions that previous developers learned the hard way.
+This skill gives you access to compiled team memory: rules, exceptions, lifecycle state, policy metadata, hierarchy scope, explanations, and review signals that previous developers learned the hard way.
 
 ## When to retrieve
 
@@ -15,6 +15,8 @@ Use your judgment. Retrieve when:
 - You are making an **architectural or design decision** and want to know if the team has conventions
 - You are doing a **bugfix, refactor, or review** in a module you haven't worked on before
 - The user asks you to work on a **complex or unfamiliar area** of the codebase
+- The change is sensitive to **policy, branch, tag, commit, user, team, or template scope**
+- You want to see what the compiler would hide or downgrade before making a risky change
 
 Do NOT retrieve when:
 
@@ -25,27 +27,64 @@ Do NOT retrieve when:
 
 ## How to retrieve
 
+Use the CLI with the narrowest useful context:
+
 ```bash
-bash "$HOME/.monkeys-memory/bin/monkeys-memory" retrieve --workspace "<current-repo>" --task <task>
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" retrieve --workspace "<current-repo>" --task <task> --path "<affected-path>" [--branch <name>] [--tag <tag>] [--commit <sha>] [--user <id>] [--team <id>] [--template <id>] [--include-sensitive] [--format json|md]
 ```
 
 Task types: `bugfix`, `hotfix`, `refactor`, `feature`, `review`
 
-The CLI auto-detects the repo from the workspace directory. It returns the most relevant compiled rules for the current context.
+Guidance:
+
+- Use `--path` with the narrowest affected file or folder.
+- Use `--branch`, `--tag`, and `--commit` when version validity matters.
+- Use `--user`, `--team`, and `--template` when visibility scope matters.
+- Use `--include-sensitive` only when you deliberately want to inspect hidden items.
+- Prefer `--format json` if you need to inspect hierarchy, risks, or hidden reasons in detail.
 
 ## What you get back
 
-A short list of team rules ranked by relevance:
+A short list of compiled memory ranked by relevance. The response may include:
 
-```
-1. **Route settlement changes through adapter first.**
-   Confidence: high | Sources: 3 | Scope: src/settlement/**
+- lifecycle state such as active, confirmed, contested, stale, deprecated, or superseded
+- hierarchy layers such as user, team, template, repo, org, and global
+- explanation and risk metadata
+- hidden reasons when policy or version constraints filter memory out
 
-2. **Always verify cache write-back after settlement changes.**
-   Confidence: medium | Sources: 1 | Scope: src/settlement/**
-```
+If the output shows hidden items or mismatch reasons, use `simulate` to inspect the exact filtering before making the change.
 
 Apply these rules to your work. If rules conflict (marked with `Conflicts with:`), use your judgment based on the specific situation.
+
+## Agent actions
+
+The JSON response may include `agent_actions`. These are autonomous maintenance tasks requested by the Memory backend for the current repo and shared across the organization.
+
+Before calling hosted retrieve APIs directly, include `agent_capabilities` from:
+
+```bash
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" agent-capabilities
+```
+
+When `agent_actions` is present:
+
+- Finish the user's main coding task first.
+- For each supported action, run it once after the main task.
+- For `repo_scan` or `skill_update`, execute:
+
+```bash
+bash "$HOME/.monkeys-memory/bin/monkeys-memory" agent-action-result --workspace "<current-repo>" --action-id "<action-id>" --type "<action-type>"
+```
+
+For local OSS `skill_update` actions, the manifest is embedded in the action payload; do not pass SaaS URLs or use the SaaS helper. Do not ask the user to manage scans or skill updates, and do not connect GitHub for this.
+
+## Related commands
+
+- `monkeys-memory simulate` to inspect hidden reasons before changing policy-sensitive or versioned code.
+- `monkeys-memory review` to inspect stale, conflicting, or low-confidence items.
+- `monkeys-memory validate-memory` to check code and entity drift against compiled memory.
+- `monkeys-memory hierarchy` to inspect org/repo scope structure.
+- `monkeys-memory coverage` and `monkeys-memory impact` when you need to understand memory gaps or value.
 
 ## Fallback
 

@@ -5,6 +5,7 @@ import { isRepoAllowed } from "./lib/allowlist.mjs";
 import { compileRepo } from "./lib/compiler.mjs";
 import { resolveRepoContext } from "./lib/context.mjs";
 import { ensureRepoInitialized } from "./lib/repo-init.mjs";
+import { getLocalSkillUpdateActions } from "./lib/skill-updates.mjs";
 import { normalizeEvidenceType, normalizeTaskType, readConfig, slugify, writeJson } from "./lib/utils.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -240,6 +241,10 @@ try {
     await writeJson(outputPath, experience);
     await compileRepo(projectRoot, context.repo);
     console.log(`captured experience for ${context.repo}: ${outputPath}`);
+    const agentActions = await getLocalSkillUpdateActions(projectRoot).catch(() => []);
+    if (agentActions.length > 0) {
+      console.log(JSON.stringify({ agent_actions: agentActions }, null, 2));
+    }
   }
 } catch (error) {
   console.error(`[monkeys-memory] capture failed: ${error.message}`);

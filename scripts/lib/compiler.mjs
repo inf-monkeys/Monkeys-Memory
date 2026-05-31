@@ -15,10 +15,13 @@ import {
   uniqueSorted,
   writeJson,
   writeText,
+  pathExists,
 } from "./utils.mjs";
 import { getAllowedRepos, isRepoAllowed } from "./allowlist.mjs";
 import { ensureRepoInitialized } from "./repo-init.mjs";
 import { toYaml } from "./yaml.mjs";
+import { createEmbeddingProvider, loadCompilerPlugins, runPluginHook } from "./plugins.mjs";
+import { classifySemanticRelation, discoverCodeEntities, inferEntitiesForMemory } from "./local-analysis.mjs";
 
 const STOP_WORDS = new Set([
   "the", "a", "an", "is", "are", "was", "were", "be", "been",
@@ -55,9 +58,9 @@ function validateExperience(experience, filePath) {
     throw new Error(`${label} has invalid confidence in ${filePath}`);
   }
 
-  const validKinds = ["rule", "exception"];
+  const validKinds = ["rule", "exception", "procedure", "checklist", "note"];
   if ("kind" in experience && !validKinds.includes(experience.kind)) {
-    throw new Error(`${label} has invalid kind "${experience.kind}" (expected ${validKinds.join(" or ")}) in ${filePath}`);
+      throw new Error(`${label} has invalid kind "${experience.kind}" (expected ${validKinds.join(" or ")}) in ${filePath}`);
   }
 
   const validStatuses = ["active", "deprecated"];
@@ -82,6 +85,70 @@ function validateExperience(experience, filePath) {
       throw new Error(`${label} has invalid source: "session" must be a non-empty string in ${filePath}`);
     }
   }
+}
+
+function normalizeLifecycleStatus(experience) {
+  if (experience.lifecycle?.state) return experience.lifecycle.state;
+  if (experience.status === "deprecated") return "deprecated";
+  return "active";
+}
+
+function normalizeExperienceV2(experience) {
+  const lifecycleState = normalizeLifecycleStatus(experience);
+  const source = experience.source ?? {};
+  const evidence = experience.evidence ?? [];
+  return {
+    ...experience,
+    kind: experience.kind ?? "rule",
+    scope: {
+      paths: experience.scope.paths,
+      task_types: (experience.scope.task_types ?? []).map(normalizeTaskType),
+      entities: uniqueSorted(experience.scope.entities ?? []),
+    },
+    evidence,
+    provenance: {
+      source_type: experience.provenance?.source_type ?? experience.source_type ?? "manual",
+      author: experience.provenance?.author ?? source.author ?? "unknown",
+      session: experience.provenance?.session ?? source.session ?? "unknown",
+      commit: experience.provenance?.commit ?? null,
+      branch: experience.provenance?.branch ?? null,
+      imported_from: experience.provenance?.imported_from ?? null,
+      evidence_refs: uniqueSorted([
+        ...(experience.provenance?.evidence_refs ?? []),
+        ...evidence.map((item) => item.ref),
+      ]),
+    },
+    lifecycle: {
+      state: lifecycleState,
+      reason: experience.lifecycle?.reason ?? null,
+      updated_at: experience.lifecycle?.updated_at ?? experience.updated_at ?? new Date().toISOString(),
+      superseded_by: experience.lifecycle?.superseded_by ?? null,
+    },
+    relationships: {
+      supports: uniqueSorted(experience.relationships?.supports ?? []),
+      contradicts: uniqueSorted(experience.relationships?.contradicts ?? []),
+      supersedes: uniqueSorted(experience.relationships?.supersedes ?? []),
+      superseded_by: uniqueSorted(experience.relationships?.superseded_by ?? []),
+      specializes: uniqueSorted(experience.relationships?.specializes ?? []),
+      generalizes: uniqueSorted(experience.relationships?.generalizes ?? []),
+      related_to: uniqueSorted(experience.relationships?.related_to ?? []),
+    },
+    policy: {
+      visibility: experience.policy?.visibility ?? "repo",
+      sensitivity: experience.policy?.sensitivity ?? "normal",
+      redaction_status: experience.policy?.redaction_status ?? "not_scanned",
+      ...(experience.policy?.redaction_categories?.length ? { redaction_categories: uniqueSorted(experience.policy.redaction_categories) } : {}),
+      ...(experience.policy?.user_id ? { user_id: experience.policy.user_id } : {}),
+      ...(experience.policy?.team_id ? { team_id: experience.policy.team_id } : {}),
+      ...(experience.policy?.template_id ? { template_id: experience.policy.template_id } : {}),
+    },
+    validity: {
+      branches: uniqueSorted(experience.validity?.branches ?? []),
+      valid_from_commit: experience.validity?.valid_from_commit ?? null,
+      valid_until_commit: experience.validity?.valid_until_commit ?? null,
+      tags: uniqueSorted(experience.validity?.tags ?? []),
+    },
+  };
 }
 
 function applyConfidenceDecay(experience, config) {
@@ -230,7 +297,14 @@ function mergeExperiences(kind, experiences) {
   const sourceCount = experiences.length;
   const evidenceCount = experiences.reduce((total, experience) => total + (experience.evidence?.length ?? 0), 0);
   const averageConfidence = experiences.reduce((total, experience) => total + experience.confidence, 0) / sourceCount;
-  const confidenceScore = clamp(averageConfidence + Math.min((sourceCount - 1) * 0.06, 0.18), 0, 1);
+  const feedback = summarizeFeedback(experiences);
+  const evidenceBonus = Math.min(evidenceCount * 0.015, 0.09);
+  const supportBonus = Math.min((sourceCount - 1) * 0.06, 0.18);
+  const helpfulBonus = Math.min((feedback.helpful + feedback.accepted) * 0.04, 0.16);
+  const negativePenalty = Math.min((feedback["not-relevant"] + feedback.outdated + feedback.failed) * 0.07, 0.28);
+  const contestedPenalty = experiences.some((experience) => experience.lifecycle?.state === "contested") ? 0.12 : 0;
+  const stalePenalty = experiences.some((experience) => experience.lifecycle?.state === "stale") ? 0.16 : 0;
+  const confidenceScore = clamp(averageConfidence + supportBonus + evidenceBonus + helpfulBonus - negativePenalty - contestedPenalty - stalePenalty, 0, 1);
   const updatedAt = maxIsoDate(experiences.map((experience) => experience.updated_at));
   const title = experiences
     .map((experience) => experience.title)
@@ -239,21 +313,164 @@ function mergeExperiences(kind, experiences) {
     .map((experience) => experience.claim)
     .sort((left, right) => left.length - right.length)[0];
 
+  const paths = uniqueSorted(experiences.flatMap((experience) => experience.scope.paths));
+  const taskTypes = uniqueSorted(experiences.flatMap((experience) => (experience.scope.task_types ?? []).map(normalizeTaskType)));
+  const entities = uniqueSorted(experiences.flatMap((experience) => experience.scope.entities ?? []));
+  const sensitivityRank = ["normal", "internal", "secret-adjacent"];
+  const sensitivity = experiences
+    .map((experience) => experience.policy?.sensitivity ?? "normal")
+    .sort((left, right) => sensitivityRank.indexOf(right) - sensitivityRank.indexOf(left))[0] ?? "normal";
+  const lifecycleState = deriveLifecycleState(experiences, feedback);
+  const qualityScore = computeQualityScore({
+    claim,
+    paths,
+    sourceCount,
+    evidenceCount,
+    confidenceScore,
+    lifecycleState,
+  });
+
   return {
     id: slugify(`${first.repo}-${kind}-${title}`),
     kind,
     title,
     claim,
     scope: {
-      paths: uniqueSorted(experiences.flatMap((experience) => experience.scope.paths)),
-      task_types: uniqueSorted(experiences.flatMap((experience) => (experience.scope.task_types ?? []).map(normalizeTaskType))),
+      paths,
+      task_types: taskTypes,
+      entities,
     },
     confidence: confidenceBucket(confidenceScore),
     confidence_score: Number(confidenceScore.toFixed(2)),
+    quality_score: Number(qualityScore.total.toFixed(2)),
+    quality: qualityScore,
     source_count: sourceCount,
     evidence_count: evidenceCount,
     updated_at: updatedAt,
     sources: uniqueSorted(experiences.map((experience) => experience.id)),
+    lifecycle: {
+      state: lifecycleState,
+      reason: null,
+      updated_at: updatedAt,
+    },
+    feedback,
+    provenance: {
+      authors: uniqueSorted(experiences.map((experience) => experience.provenance?.author)),
+      source_types: uniqueSorted(experiences.map((experience) => experience.provenance?.source_type)),
+      evidence_refs: uniqueSorted(experiences.flatMap((experience) => experience.provenance?.evidence_refs ?? [])),
+    },
+    relationships: {
+      supports: uniqueSorted(experiences.map((experience) => experience.id)),
+      contradicts: uniqueSorted(experiences.flatMap((experience) => experience.relationships?.contradicts ?? [])),
+      supersedes: uniqueSorted(experiences.flatMap((experience) => experience.relationships?.supersedes ?? [])),
+      superseded_by: uniqueSorted(experiences.flatMap((experience) => experience.relationships?.superseded_by ?? [])),
+      specializes: uniqueSorted(experiences.flatMap((experience) => experience.relationships?.specializes ?? [])),
+      generalizes: uniqueSorted(experiences.flatMap((experience) => experience.relationships?.generalizes ?? [])),
+      related_to: uniqueSorted(experiences.flatMap((experience) => experience.relationships?.related_to ?? [])),
+    },
+    policy: {
+      visibility: first.policy?.visibility ?? "repo",
+      sensitivity,
+      redaction_status: experiences.some((experience) => experience.policy?.redaction_status === "redacted")
+        ? "redacted"
+        : "not_scanned",
+      ...(uniqueSorted(experiences.flatMap((experience) => experience.policy?.redaction_categories ?? [])).length
+        ? { redaction_categories: uniqueSorted(experiences.flatMap((experience) => experience.policy?.redaction_categories ?? [])) }
+        : {}),
+      ...(first.policy?.user_id ? { user_id: first.policy.user_id } : {}),
+      ...(first.policy?.team_id ? { team_id: first.policy.team_id } : {}),
+      ...(first.policy?.template_id ? { template_id: first.policy.template_id } : {}),
+    },
+    validity: {
+      branches: uniqueSorted(experiences.flatMap((experience) => experience.validity?.branches ?? [])),
+      valid_from_commit: experiences.map((experience) => experience.validity?.valid_from_commit).filter(Boolean).sort()[0] ?? null,
+      valid_until_commit: maxIsoDate(experiences.map((experience) => experience.validity?.valid_until_commit)),
+      tags: uniqueSorted(experiences.flatMap((experience) => experience.validity?.tags ?? [])),
+    },
+  };
+}
+
+function summarizeFeedback(experiences) {
+  const summary = { helpful: 0, accepted: 0, outdated: 0, failed: 0, "not-relevant": 0 };
+  for (const experience of experiences) {
+    for (const event of experience.feedback ?? []) {
+      if (event.outcome in summary) summary[event.outcome] += 1;
+    }
+  }
+  return summary;
+}
+
+function deriveLifecycleState(experiences, feedback) {
+  if (feedback.outdated > 0) return "stale";
+  if (feedback.failed > 0 || feedback["not-relevant"] > feedback.helpful + feedback.accepted) return "contested";
+  if (feedback.accepted > 0 || feedback.helpful > 0) return "confirmed";
+  if (experiences.some((experience) => experience.lifecycle?.state === "contested")) return "contested";
+  if (experiences.some((experience) => experience.lifecycle?.state === "stale")) return "stale";
+  if (experiences.some((experience) => experience.lifecycle?.state === "confirmed")) return "confirmed";
+  return "active";
+}
+
+async function loadFeedbackByMemoryId(compiledDir) {
+  const logPath = path.join(compiledDir, "feedback-log.json");
+  if (!(await pathExists(logPath))) return new Map();
+  const log = await readJson(logPath);
+  const map = new Map();
+  for (const event of log.feedback ?? []) {
+    const bucket = map.get(event.id) ?? [];
+    bucket.push(event);
+    map.set(event.id, bucket);
+  }
+  return map;
+}
+
+function attachFeedback(experiences, feedbackByMemoryId, previousPack) {
+  const sourceToRuleIds = new Map();
+  for (const item of [
+    ...(previousPack?.rules ?? []),
+    ...(previousPack?.exceptions ?? []),
+    ...(previousPack?.procedures ?? []),
+    ...(previousPack?.checklists ?? []),
+    ...(previousPack?.notes ?? []),
+  ]) {
+    for (const sourceId of item.sources ?? []) {
+      const ids = sourceToRuleIds.get(sourceId) ?? [];
+      ids.push(item.id);
+      sourceToRuleIds.set(sourceId, ids);
+    }
+  }
+  return experiences.map((experience) => {
+    const direct = feedbackByMemoryId.get(experience.id) ?? [];
+    const viaCompiled = (sourceToRuleIds.get(experience.id) ?? []).flatMap((id) => feedbackByMemoryId.get(id) ?? []);
+    return { ...experience, feedback: [...direct, ...viaCompiled] };
+  });
+}
+
+function computeQualityScore({ claim, paths, sourceCount, evidenceCount, confidenceScore, lifecycleState }) {
+  const clarity = clamp(claim.length >= 24 && claim.length <= 220 ? 0.9 : 0.65, 0, 1);
+  const specificityScore = paths.some((scopePath) => scopePath !== "**" && scopePath !== "**/*") ? 0.85 : 0.45;
+  const evidenceStrength = clamp(evidenceCount * 0.2 + Math.min(sourceCount * 0.15, 0.45), 0, 1);
+  const freshness = lifecycleState === "stale" ? 0.35 : lifecycleState === "contested" ? 0.55 : 0.85;
+  const conflictRisk = lifecycleState === "contested" ? 0.8 : 0.15;
+  const actionability = /\b(should|must|use|avoid|route|verify|ensure|prefer|keep|add|update|run)\b/i.test(claim) ? 0.9 : 0.65;
+  const total = clamp(
+    clarity * 0.16 +
+      specificityScore * 0.18 +
+      evidenceStrength * 0.16 +
+      freshness * 0.16 +
+      (1 - conflictRisk) * 0.14 +
+      actionability * 0.12 +
+      confidenceScore * 0.08,
+    0,
+    1,
+  );
+  return {
+    total: Number(total.toFixed(2)),
+    clarity: Number(clarity.toFixed(2)),
+    specificity: Number(specificityScore.toFixed(2)),
+    evidence_strength: Number(evidenceStrength.toFixed(2)),
+    freshness: Number(freshness.toFixed(2)),
+    conflict_risk: Number(conflictRisk.toFixed(2)),
+    actionability: Number(actionability.toFixed(2)),
   };
 }
 
@@ -291,6 +508,176 @@ function buildPathIndex(rulePack) {
     repo: rulePack.repo,
     generated_at: rulePack.generated_at,
     paths: pathMap,
+  };
+}
+
+function buildEntityIndex(rulePack, codeEntities = []) {
+  const entityMap = {};
+  for (const item of [...rulePack.rules, ...rulePack.exceptions, ...(rulePack.procedures ?? []), ...(rulePack.checklists ?? [])]) {
+    for (const entity of item.scope.entities ?? []) {
+      entityMap[entity] ??= { rules: [], exceptions: [], procedures: [], checklists: [], definitions: [] };
+      if (item.kind === "exception") entityMap[entity].exceptions.push(item.id);
+      else if (item.kind === "procedure") entityMap[entity].procedures.push(item.id);
+      else if (item.kind === "checklist") entityMap[entity].checklists.push(item.id);
+      else entityMap[entity].rules.push(item.id);
+    }
+  }
+  for (const entity of codeEntities) {
+    entityMap[entity.id] ??= { rules: [], exceptions: [], procedures: [], checklists: [], definitions: [] };
+    entityMap[entity.id].definitions.push({ kind: entity.kind, name: entity.name, path: entity.path, line: entity.line });
+  }
+  for (const value of Object.values(entityMap)) {
+    value.rules = uniqueSorted(value.rules);
+    value.exceptions = uniqueSorted(value.exceptions);
+    value.procedures = uniqueSorted(value.procedures);
+    value.checklists = uniqueSorted(value.checklists);
+    value.definitions = (value.definitions ?? []).sort((left, right) => `${left.path}:${left.line}`.localeCompare(`${right.path}:${right.line}`));
+  }
+  return {
+    version: 1,
+    org: rulePack.org,
+    repo: rulePack.repo,
+    generated_at: rulePack.generated_at,
+    discovered_count: codeEntities.length,
+    entities: entityMap,
+  };
+}
+
+function buildProvenanceGraph(rulePack, experiences) {
+  const nodes = [
+    ...experiences.map((experience) => ({
+      id: experience.id,
+      type: "experience",
+      label: experience.title,
+      lifecycle: experience.lifecycle,
+      provenance: experience.provenance,
+      policy: experience.policy,
+    })),
+    ...[...rulePack.rules, ...rulePack.exceptions, ...rulePack.procedures, ...rulePack.checklists].map((item) => ({
+      id: item.id,
+      type: item.kind,
+      label: item.title,
+      lifecycle: item.lifecycle,
+      quality_score: item.quality_score,
+      confidence_score: item.confidence_score,
+    })),
+  ];
+  const edges = [];
+  for (const item of [...rulePack.rules, ...rulePack.exceptions, ...rulePack.procedures, ...rulePack.checklists]) {
+    for (const sourceId of item.sources ?? []) {
+      edges.push({ from: sourceId, to: item.id, type: "supports" });
+    }
+    for (const conflictId of item.conflicts_with ?? []) {
+      edges.push({ from: item.id, to: conflictId, type: "contradicts" });
+    }
+    for (const supersededId of item.relationships?.supersedes ?? []) {
+      edges.push({ from: item.id, to: supersededId, type: "supersedes" });
+    }
+  }
+  return {
+    version: 1,
+    org: rulePack.org,
+    repo: rulePack.repo,
+    generated_at: rulePack.generated_at,
+    nodes,
+    edges,
+  };
+}
+
+function buildReviewQueue(rulePack) {
+  const items = [];
+  for (const item of [...rulePack.rules, ...rulePack.exceptions, ...rulePack.procedures, ...rulePack.checklists]) {
+    if (item.lifecycle?.state === "stale") {
+      items.push({ id: item.id, reason: "stale", priority: "high", claim: item.claim });
+    }
+    if (item.lifecycle?.state === "contested" || item.conflicts_with?.length > 0) {
+      items.push({ id: item.id, reason: "conflict", priority: "high", claim: item.claim, conflicts_with: item.conflicts_with ?? [] });
+    }
+    if (item.evidence_count === 0 && item.confidence_score >= 0.8) {
+      items.push({ id: item.id, reason: "high-confidence-without-evidence", priority: "medium", claim: item.claim });
+    }
+    if ((item.quality_score ?? 1) < 0.55) {
+      items.push({ id: item.id, reason: "low-quality", priority: "medium", claim: item.claim });
+    }
+    if (item.policy?.sensitivity !== "normal") {
+      items.push({ id: item.id, reason: "policy-sensitive", priority: "medium", claim: item.claim, sensitivity: item.policy.sensitivity });
+    }
+  }
+  return {
+    version: 1,
+    org: rulePack.org,
+    repo: rulePack.repo,
+    generated_at: rulePack.generated_at,
+    items,
+  };
+}
+
+function buildSemanticRelations(rulePack) {
+  const items = [...rulePack.rules, ...rulePack.exceptions, ...rulePack.procedures, ...rulePack.checklists, ...rulePack.notes];
+  const relations = [];
+  for (let i = 0; i < items.length; i += 1) {
+    for (let j = i + 1; j < items.length; j += 1) {
+      const relation = classifySemanticRelation(items[i], items[j]);
+      if (relation.relation === "unrelated") continue;
+      relations.push({ from: items[i].id, to: items[j].id, ...relation });
+      attachSemanticRelation(items[i], items[j], relation.relation);
+    }
+  }
+  return {
+    version: 1,
+    org: rulePack.org,
+    repo: rulePack.repo,
+    generated_at: rulePack.generated_at,
+    relations,
+  };
+}
+
+function attachSemanticRelation(left, right, relation) {
+  left.relationships ??= {};
+  right.relationships ??= {};
+  const push = (target, field, value) => {
+    target.relationships[field] = uniqueSorted([...(target.relationships[field] ?? []), value]);
+  };
+  if (relation === "duplicates" || relation === "related_to") {
+    push(left, "related_to", right.id);
+    push(right, "related_to", left.id);
+  } else if (relation === "contradicts") {
+    push(left, "contradicts", right.id);
+    push(right, "contradicts", left.id);
+  } else if (relation === "supersedes") {
+    push(left, "supersedes", right.id);
+    push(right, "superseded_by", left.id);
+  } else if (relation === "superseded_by") {
+    push(left, "superseded_by", right.id);
+    push(right, "supersedes", left.id);
+  } else if (relation === "generalizes") {
+    push(left, "generalizes", right.id);
+    push(right, "specializes", left.id);
+  } else if (relation === "specializes") {
+    push(left, "specializes", right.id);
+    push(right, "generalizes", left.id);
+  }
+}
+
+function buildVectorIndex(rulePack, embeddingProvider) {
+  const items = [...rulePack.rules, ...rulePack.exceptions, ...rulePack.procedures, ...rulePack.checklists, ...rulePack.notes];
+  return {
+    version: 1,
+    org: rulePack.org,
+    repo: rulePack.repo,
+    generated_at: rulePack.generated_at,
+    provider: embeddingProvider?.name ?? null,
+    dimensions: embeddingProvider?.dimensions ?? items.find((item) => Array.isArray(item.embedding))?.embedding?.length ?? 0,
+    items: items
+      .filter((item) => Array.isArray(item.embedding))
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        claim: item.claim,
+        scope: item.scope,
+        embedding_model: item.embedding_model,
+        embedding: item.embedding,
+      })),
   };
 }
 
@@ -345,7 +732,7 @@ async function loadExperiences(repoDir, config) {
         experience.updated_at = stat.mtime.toISOString();
       }
       applyConfidenceDecay(experience, config);
-      loaded.push(experience);
+      loaded.push(normalizeExperienceV2(experience));
     } catch (error) {
       errors.push({ file: filePath, error: error.message });
     }
@@ -373,9 +760,25 @@ export async function compileRepo(projectRoot, repoName) {
   }
 
   const config = await readConfig(projectRoot);
+  const plugins = await loadCompilerPlugins(projectRoot, config);
+  const embeddingProvider = await createEmbeddingProvider(projectRoot, config);
   const { repoDir, compiledDir } = await ensureRepoInitialized(projectRoot, config.memoryRoot, repoName);
 
-  const experiences = await loadExperiences(repoDir, config);
+  const feedbackByMemoryId = await loadFeedbackByMemoryId(compiledDir);
+  let previousPack = null;
+  const previousRulesPath = path.join(compiledDir, "rules.json");
+  if (await pathExists(previousRulesPath)) {
+    try {
+      previousPack = await readJson(previousRulesPath);
+    } catch {}
+  }
+  const pluginContext = { projectRoot, repo: repoName, org: config.org, config };
+  const experiences = await runPluginHook(
+    plugins,
+    "beforeCompile",
+    attachFeedback(await loadExperiences(repoDir, config), feedbackByMemoryId, previousPack),
+    { ...pluginContext, previousPack },
+  );
   const grouped = new Map();
 
   for (const experience of experiences) {
@@ -389,33 +792,82 @@ export async function compileRepo(projectRoot, repoName) {
   const mergedGroups = mergeGroupsByFuzzyClaim(grouped, fuzzyThreshold);
 
   const mergedItems = [...mergedGroups.values()].map((bucket) => mergeExperiences(bucket[0].kind ?? "rule", bucket));
+  const workspaceRoot = config.workspaceRoot
+    ? path.resolve(projectRoot, config.workspaceRoot)
+    : path.join(projectRoot, repoName);
+  const codeEntities = config.codeEntities?.enabled === false
+    ? []
+    : await discoverCodeEntities(workspaceRoot, { maxFiles: config.codeEntities?.maxFiles ?? 600 });
+  if (codeEntities.length > 0) {
+    for (const item of mergedItems) {
+      item.scope.entities = uniqueSorted([
+        ...(item.scope.entities ?? []),
+        ...inferEntitiesForMemory(item, codeEntities),
+      ]);
+    }
+  }
   const generatedAt = new Date().toISOString();
 
   const allRules = mergedItems.filter((item) => item.kind === "rule");
   detectConflicts(allRules);
 
-  const rulePack = {
-    version: 1,
+  let rulePack = {
+    version: 2,
     org: config.org,
     repo: repoName,
     generated_at: generatedAt,
     source_experience_count: experiences.length,
     rules: allRules.sort(sortRules),
     exceptions: mergedItems.filter((item) => item.kind === "exception").sort(sortRules),
+    procedures: mergedItems.filter((item) => item.kind === "procedure").sort(sortRules),
+    checklists: mergedItems.filter((item) => item.kind === "checklist").sort(sortRules),
+    notes: mergedItems.filter((item) => item.kind === "note").sort(sortRules),
   };
 
-  const pathIndex = buildPathIndex(rulePack);
-  const onboarding = buildOnboardingMarkdown(rulePack, config);
+  if (embeddingProvider) {
+    for (const item of [...rulePack.rules, ...rulePack.exceptions, ...rulePack.procedures, ...rulePack.checklists, ...rulePack.notes]) {
+      item.embedding_model = embeddingProvider.name;
+      item.embedding = await embeddingProvider.embed(item.claim);
+    }
+  }
 
+  rulePack = await runPluginHook(plugins, "afterCompile", rulePack, { ...pluginContext, experienceCount: experiences.length });
+
+  const pathIndex = buildPathIndex(rulePack);
+  const entityIndex = buildEntityIndex(rulePack, codeEntities);
+  const provenanceGraph = buildProvenanceGraph(rulePack, experiences);
+  const reviewQueue = buildReviewQueue(rulePack);
+  const semanticRelations = buildSemanticRelations(rulePack);
+  const vectorIndex = buildVectorIndex(rulePack, embeddingProvider);
+  const onboarding = buildOnboardingMarkdown(rulePack, config);
   await writeJson(path.join(compiledDir, "rules.json"), rulePack);
   await writeText(path.join(compiledDir, "rules.yaml"), toYaml(rulePack));
   await writeText(path.join(compiledDir, "onboarding.md"), onboarding);
   await writeJson(path.join(compiledDir, "path-index.json"), pathIndex);
+  await writeJson(path.join(compiledDir, "entity-index.json"), entityIndex);
+  await writeJson(path.join(compiledDir, "provenance-graph.json"), provenanceGraph);
+  await writeJson(path.join(compiledDir, "review-queue.json"), reviewQueue);
+  await writeJson(path.join(compiledDir, "semantic-relations.json"), semanticRelations);
+  await writeJson(path.join(compiledDir, "vector-index.json"), vectorIndex);
+  await writeJson(path.join(compiledDir, "procedures.json"), {
+    version: 1,
+    org: config.org,
+    repo: repoName,
+    generated_at: generatedAt,
+    procedures: rulePack.procedures,
+    checklists: rulePack.checklists,
+  });
 
   return {
     repo: repoName,
     ruleCount: rulePack.rules.length,
     exceptionCount: rulePack.exceptions.length,
+    procedureCount: rulePack.procedures.length,
+    checklistCount: rulePack.checklists.length,
+    reviewItemCount: reviewQueue.items.length,
+    semanticRelationCount: semanticRelations.relations.length,
+    entityCount: Object.keys(entityIndex.entities).length,
+    vectorIndexCount: vectorIndex.items.length,
     sourceExperienceCount: experiences.length,
   };
 }

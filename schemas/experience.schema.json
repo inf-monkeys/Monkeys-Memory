@@ -29,7 +29,7 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["rule", "exception"],
+      "enum": ["rule", "exception", "procedure", "checklist", "note"],
       "default": "rule"
     },
     "title": {
@@ -54,6 +54,13 @@
           }
         },
         "task_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "entities": {
           "type": "array",
           "items": {
             "type": "string",
@@ -105,9 +112,114 @@
       "enum": ["active", "deprecated"],
       "default": "active"
     },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["candidate", "active", "confirmed", "contested", "stale", "deprecated", "superseded"]
+        },
+        "reason": {
+          "type": ["string", "null"]
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "superseded_by": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_type": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "commit": {
+          "type": ["string", "null"]
+        },
+        "branch": {
+          "type": ["string", "null"]
+        },
+        "imported_from": {
+          "type": ["string", "null"]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "relationships": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "supports": { "$ref": "#/$defs/idList" },
+        "contradicts": { "$ref": "#/$defs/idList" },
+        "supersedes": { "$ref": "#/$defs/idList" },
+        "superseded_by": { "$ref": "#/$defs/idList" },
+        "specializes": { "$ref": "#/$defs/idList" },
+        "generalizes": { "$ref": "#/$defs/idList" },
+        "related_to": { "$ref": "#/$defs/idList" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "visibility": {
+          "type": "string",
+          "enum": ["user", "repo", "team", "org", "global"]
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": ["normal", "internal", "secret-adjacent"]
+        },
+        "redaction_status": {
+          "type": "string",
+          "enum": ["not_scanned", "clean", "redacted", "blocked"]
+        }
+      }
+    },
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branches": { "$ref": "#/$defs/idList" },
+        "valid_from_commit": {
+          "type": ["string", "null"]
+        },
+        "valid_until_commit": {
+          "type": ["string", "null"]
+        },
+        "tags": { "$ref": "#/$defs/idList" }
+      }
+    },
     "updated_at": {
       "type": "string",
       "format": "date-time"
+    }
+  },
+  "$defs": {
+    "idList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     }
   }
 }

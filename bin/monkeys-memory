@@ -30,6 +30,48 @@ case "${COMMAND}" in
   status)
     exec node "${REPO_ROOT}/scripts/status-memory.mjs" "$@"
     ;;
+  review)
+    exec node "${REPO_ROOT}/scripts/review-memory.mjs" "$@"
+    ;;
+  simulate)
+    exec node "${REPO_ROOT}/scripts/simulate-memory.mjs" "$@"
+    ;;
+  benchmark)
+    exec node "${REPO_ROOT}/scripts/benchmark-memory.mjs" "$@"
+    ;;
+  staleness)
+    exec node "${REPO_ROOT}/scripts/staleness-memory.mjs" "$@"
+    ;;
+  validate-memory)
+    exec node "${REPO_ROOT}/scripts/validate-memory.mjs" "$@"
+    ;;
+  redact)
+    exec node "${REPO_ROOT}/scripts/redact-memory.mjs" "$@"
+    ;;
+  coverage)
+    exec node "${REPO_ROOT}/scripts/coverage-memory.mjs" "$@"
+    ;;
+  impact)
+    exec node "${REPO_ROOT}/scripts/impact-memory.mjs" "$@"
+    ;;
+  relations)
+    exec node "${REPO_ROOT}/scripts/relations-memory.mjs" "$@"
+    ;;
+  feedback)
+    exec node "${REPO_ROOT}/scripts/feedback-memory.mjs" "$@"
+    ;;
+  trajectory)
+    exec node "${REPO_ROOT}/scripts/trajectory-memory.mjs" "$@"
+    ;;
+  hierarchy)
+    exec node "${REPO_ROOT}/scripts/hierarchy-memory.mjs" "$@"
+    ;;
+  agent-action-result)
+    exec node "${REPO_ROOT}/scripts/agent-action-result.mjs" "$@"
+    ;;
+  agent-capabilities)
+    exec node "${REPO_ROOT}/scripts/agent-capabilities.mjs" "$@"
+    ;;
   list)
     exec node "${REPO_ROOT}/scripts/list-experiences.mjs" "$@"
     ;;
@@ -47,6 +89,20 @@ Usage:
   monkeys-memory capture --title <title> --claim <claim> [--workspace <dir>] [--repo <repo>] [--path <path>] [--task <task>] [--kind rule|exception] [--auto] [--dry-run]
   monkeys-memory sync [--no-pull] [--from-ref <ref>] [--to-ref <ref>]
   monkeys-memory status [--repo <repo>]
+  monkeys-memory review [--repo <repo>] [--format table|json]
+  monkeys-memory simulate [--workspace <dir>] [--repo <repo>] [--path <path>] [--task <task>]
+  monkeys-memory benchmark [--out <file>]
+  monkeys-memory staleness [--repo <repo>] [--workspace <repo-dir>] [--since <git-ref>]
+  monkeys-memory validate-memory [--repo <repo>] [--workspace <repo-dir>]
+  monkeys-memory redact [--repo <repo>] [--write]
+  monkeys-memory coverage [--repo <repo>]
+  monkeys-memory impact [--repo <repo>]
+  monkeys-memory relations [--repo <repo>]
+  monkeys-memory feedback --repo <repo> --id <memory-id> --outcome helpful|not-relevant|outdated|accepted|failed
+  monkeys-memory trajectory --repo <repo> --file <events.json> [--write]
+  monkeys-memory hierarchy
+  monkeys-memory agent-action-result --action-id <id> [--workspace <dir>] [--no-report]
+  monkeys-memory agent-capabilities
   monkeys-memory list --repo <repo> [--status active|deprecated] [--kind rule|exception] [--path <glob>] [--format json|table]
   monkeys-memory deprecate --repo <repo> --id <experience-id>
   monkeys-memory init-repo --workspace <path> [--no-hooks] [--no-claude]

@@ -56,5 +56,12 @@ export async function resolveRepoContext(options = {}) {
     repo,
     path: relativePath,
     task: options.task ?? null,
+    branch: options.branch ?? null,
+    tag: options.tag ?? null,
+    commit: options.commit ?? null,
+    userId: options.userId ?? null,
+    teamId: options.teamId ?? null,
+    templateId: options.templateId ?? null,
+    includeSensitive: options.includeSensitive ?? false,
   };
 }

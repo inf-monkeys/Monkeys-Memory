@@ -127,6 +127,29 @@ test("conflict detection annotates contradictory rules", async () => {
   assert.ok(ruleA.conflicts_with?.length > 0 || ruleB.conflicts_with?.length > 0);
 });
 
+test("semantic relation compiler detects low-overlap policy conflicts", async () => {
+  const root = await createFixture({ fuzzyThreshold: 1.0 });
+  await writeExperience(root, "test-repo", makeExp({
+    id: "semantic_guard",
+    title: "Require reauth guard",
+    claim: "Require recent reauthentication guard for password and MFA changes.",
+    paths: ["src/auth/**"],
+    updatedAt: "2026-05-09T00:00:00.000Z",
+  }));
+  await writeExperience(root, "test-repo", makeExp({
+    id: "semantic_bypass",
+    title: "Bypass reauth checks",
+    claim: "Bypass reauth checks when updating password or MFA settings.",
+    paths: ["src/auth/**"],
+    updatedAt: "2026-05-09T00:01:00.000Z",
+  }));
+
+  await compileProject(root);
+  const relations = JSON.parse(await fs.readFile(path.join(root, ".monkeys-memory", "repos", "test-repo", "compiled", "semantic-relations.json"), "utf8"));
+  const contradiction = relations.relations.find((relation) => relation.relation === "contradicts");
+  assert.ok(contradiction);
+});
+
 test("task type normalization in compiled rules", async () => {
   const root = await createFixture();
   await writeExperience(root, "test-repo", makeExp({
