@@ -1,13 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middleware/auth.middleware.js';
+import { localContextMiddleware } from '../../middleware/local-context.middleware.js';
 import { captureService } from './capture.service.js';
 import { getAuditQueue } from '../../jobs/queue.js';
 import type { CaptureRequest, EvidenceItem } from '../../shared/types.js';
-import { checkExperienceQuota } from '../../shared/quota.js';
 import { agentActionsService } from '../agent-actions/agent-actions.service.js';
 
 export async function captureRoutes(app: FastifyInstance) {
-  app.post('/api/v1/capture', { preHandler: [authMiddleware] }, async (req, reply) => {
+  app.post('/api/v1/capture', { preHandler: [localContextMiddleware] }, async (req, reply) => {
     const body = req.body as CaptureRequest;
     const missingFields: string[] = [];
     if (!body.repo) missingFields.push('repo');
@@ -22,15 +21,13 @@ export async function captureRoutes(app: FastifyInstance) {
       });
     }
 
-    await checkExperienceQuota(req.auth.orgId);
-
-    const result = await captureService.capture(req.auth.orgId, req.auth.userId, body);
+    const result = await captureService.capture(req.workspace.orgId, req.workspace.userId, body);
 
     // Async audit
     getAuditQueue().add('audit', {
-      orgId: req.auth.orgId,
+      orgId: req.workspace.orgId,
       entry: {
-        user_id: req.auth.userId,
+        user_id: req.workspace.userId,
         action: 'capture',
         resource_type: 'experience',
         resource_id: result.id,
@@ -39,24 +36,22 @@ export async function captureRoutes(app: FastifyInstance) {
       },
     }).catch(() => {});
 
-    const agentActions = await agentActionsService.maybeLeaseActions(req.auth.orgId, body.repo, req.auth.userId, body.agent_capabilities);
+    const agentActions = await agentActionsService.maybeLeaseActions(req.workspace.orgId, body.repo, req.workspace.userId, body.agent_capabilities);
     return reply.status(201).send({ ...result, agent_actions: agentActions });
   });
 
-  app.post('/api/v1/capture/auto', { preHandler: [authMiddleware] }, async (req, reply) => {
+  app.post('/api/v1/capture/auto', { preHandler: [localContextMiddleware] }, async (req, reply) => {
     const body = req.body as { repo: string; commit_message: string; changed_files: string[]; diff_summary?: string };
     if (!body.repo || !body.commit_message || !body.changed_files) {
       return reply.status(400).send({ error: 'repo, commit_message, and changed_files are required' });
     }
 
-    await checkExperienceQuota(req.auth.orgId);
-
-    const result = await captureService.autoCapture(req.auth.orgId, req.auth.userId, body);
+    const result = await captureService.autoCapture(req.workspace.orgId, req.workspace.userId, body);
 
     getAuditQueue().add('audit', {
-      orgId: req.auth.orgId,
+      orgId: req.workspace.orgId,
       entry: {
-        user_id: req.auth.userId,
+        user_id: req.workspace.userId,
         action: 'capture',
         resource_type: 'experience',
         resource_id: result.id,
@@ -65,7 +60,7 @@ export async function captureRoutes(app: FastifyInstance) {
       },
     }).catch(() => {});
 
-    const agentActions = await agentActionsService.maybeLeaseActions(req.auth.orgId, body.repo, req.auth.userId, undefined);
+    const agentActions = await agentActionsService.maybeLeaseActions(req.workspace.orgId, body.repo, req.workspace.userId, undefined);
     return reply.status(201).send({ ...result, confidence: 0.5, agent_actions: agentActions });
   });
 }

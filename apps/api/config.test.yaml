@@ -18,13 +18,9 @@ redis:
   port: 6379
   password:
 
-auth:
-  sessionSecret: test-session-secret-with-enough-length
-  globalAdminSecret: test-global-admin-secret-with-enough-length
-  adminMfaEncryptionKey: test-admin-mfa-encryption-key
-  appBaseUrl: http://localhost:3000
-  webBaseUrl: http://localhost:8080
+console:
+  baseUrl: http://localhost:8080
+
+cors:
   allowedOrigins:
     - http://localhost:8080
-  cookieSecure: false
-  cookieSameSite: lax

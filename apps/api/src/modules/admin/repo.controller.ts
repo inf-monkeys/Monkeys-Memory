@@ -1,8 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { accountRecentReauthGuard, accountWriteGuard, authMiddleware, requireRole } from '../../middleware/auth.middleware.js';
+import { localContextMiddleware, requireRole } from '../../middleware/local-context.middleware.js';
 import { AppDataSource } from '../../database/ormconfig.js';
 import { compilerService } from '../compiler/compiler.service.js';
-import { checkRepoQuota } from '../../shared/quota.js';
 import type { CompiledRule, RulePack } from '../../shared/types.js';
 import { buildRepoMetadataIngest, parseJsonField, type RepoMetadataIngestBody } from './repo-metadata.js';
 
@@ -148,42 +147,40 @@ async function enrichRulePack(orgId: string, content: RulePack | string): Promis
 
 export async function repoRoutes(app: FastifyInstance) {
   // List repos
-  app.get('/api/v1/repos', { preHandler: [authMiddleware] }, async (req) => {
+  app.get('/api/v1/repos', { preHandler: [localContextMiddleware] }, async (req) => {
     const rows = await AppDataSource.query(
       `SELECT id, name, allowlisted, last_compiled_at, compile_version, experience_count, created_at
-       FROM "${req.auth.orgId}_repos" WHERE is_deleted = false ORDER BY created_at DESC`,
+       FROM "${req.workspace.orgId}_repos" WHERE is_deleted = false ORDER BY created_at DESC`,
     );
     return { repos: rows };
   });
 
   // Add repo
-  app.post('/api/v1/repos', { preHandler: [authMiddleware, requireRole('owner', 'admin'), accountWriteGuard, accountRecentReauthGuard] }, async (req, reply) => {
+  app.post('/api/v1/repos', { preHandler: [localContextMiddleware, requireRole('owner', 'admin')] }, async (req, reply) => {
     const body = req.body as { name: string };
     if (!body.name) return reply.status(400).send({ error: 'name is required' });
 
-    await checkRepoQuota(req.auth.orgId);
-
     const result = await AppDataSource.query(
-      `INSERT INTO "${req.auth.orgId}_repos" (name, allowlisted) VALUES ($1, true) RETURNING id, name`,
+      `INSERT INTO "${req.workspace.orgId}_repos" (name, allowlisted) VALUES ($1, true) RETURNING id, name`,
       [body.name],
     );
     return reply.status(201).send(result[0]);
   });
 
   // Trigger compile
-  app.post('/api/v1/repos/:repoId/compile', { preHandler: [authMiddleware, requireRole('owner', 'admin'), accountWriteGuard] }, async (req) => {
+  app.post('/api/v1/repos/:repoId/compile', { preHandler: [localContextMiddleware, requireRole('owner', 'admin')] }, async (req) => {
     const { repoId } = req.params as { repoId: string };
-    const result = await compilerService.compileRepo(req.auth.orgId, repoId);
-    await compilerService.compileOrgRules(req.auth.orgId);
+    const result = await compilerService.compileRepo(req.workspace.orgId, repoId);
+    await compilerService.compileOrgRules(req.workspace.orgId);
     return result;
   });
 
   // Ingest repository metadata from Git providers, CI jobs, or explicit admin updates.
-  app.post('/api/v1/repos/:repoId/metadata/ingest', { preHandler: [authMiddleware, requireRole('owner', 'admin'), accountWriteGuard] }, async (req, reply) => {
+  app.post('/api/v1/repos/:repoId/metadata/ingest', { preHandler: [localContextMiddleware, requireRole('owner', 'admin')] }, async (req, reply) => {
     const { repoId } = req.params as { repoId: string };
     const body = (req.body ?? {}) as RepoMetadataIngestBody;
     const rows = await AppDataSource.query(
-      `SELECT metadata FROM "${req.auth.orgId}_repos" WHERE id = $1 AND is_deleted = false LIMIT 1`,
+      `SELECT metadata FROM "${req.workspace.orgId}_repos" WHERE id = $1 AND is_deleted = false LIMIT 1`,
       [repoId],
     ) as Array<{ metadata: Record<string, unknown> | string | null }>;
     if (rows.length === 0) return reply.status(404).send({ error: 'Repo not found' });
@@ -191,17 +188,17 @@ export async function repoRoutes(app: FastifyInstance) {
     const currentMetadata = parseJsonField<Record<string, unknown>>(rows[0].metadata, {});
     const { metadata, summary } = buildRepoMetadataIngest(currentMetadata, body);
     await AppDataSource.query(
-      `UPDATE "${req.auth.orgId}_repos"
+      `UPDATE "${req.workspace.orgId}_repos"
           SET metadata = $1,
               updated_at = NOW()
         WHERE id = $2`,
       [JSON.stringify(metadata), repoId],
     );
     await AppDataSource.query(
-      `INSERT INTO "${req.auth.orgId}_audit_logs" (user_id, action, resource_type, resource_id, metadata, ip_address)
+      `INSERT INTO "${req.workspace.orgId}_audit_logs" (user_id, action, resource_type, resource_id, metadata, ip_address)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [
-        req.auth.userId,
+        req.workspace.userId,
         'repo.metadata.ingest',
         'repo',
         repoId,
@@ -212,14 +209,12 @@ export async function repoRoutes(app: FastifyInstance) {
     return { repo_id: repoId, metadata: summary };
   });
 
-  // CLI-safe repo scan ingestion. The CLI authenticates with mk_cli_ or PAT and
-  // resolves org membership through authMiddleware, so this path does not use
-  // browser CSRF guards.
-  app.post('/api/v1/repos/:repoId/scan', { preHandler: [authMiddleware, requireRole('owner', 'admin')] }, async (req, reply) => {
+  // Agent-safe repo scan ingestion for the local workspace.
+  app.post('/api/v1/repos/:repoId/scan', { preHandler: [localContextMiddleware, requireRole('owner', 'admin')] }, async (req, reply) => {
     const { repoId } = req.params as { repoId: string };
     const body = (req.body ?? {}) as RepoMetadataIngestBody;
     const rows = await AppDataSource.query(
-      `SELECT metadata FROM "${req.auth.orgId}_repos" WHERE id = $1 AND is_deleted = false LIMIT 1`,
+      `SELECT metadata FROM "${req.workspace.orgId}_repos" WHERE id = $1 AND is_deleted = false LIMIT 1`,
       [repoId],
     ) as Array<{ metadata: Record<string, unknown> | string | null }>;
     if (rows.length === 0) return reply.status(404).send({ error: 'Repo not found' });
@@ -232,17 +227,17 @@ export async function repoRoutes(app: FastifyInstance) {
       mode: 'snapshot',
     });
     await AppDataSource.query(
-      `UPDATE "${req.auth.orgId}_repos"
+      `UPDATE "${req.workspace.orgId}_repos"
           SET metadata = $1,
               updated_at = NOW()
         WHERE id = $2`,
       [JSON.stringify(metadata), repoId],
     );
     await AppDataSource.query(
-      `INSERT INTO "${req.auth.orgId}_audit_logs" (user_id, action, resource_type, resource_id, metadata, ip_address)
+      `INSERT INTO "${req.workspace.orgId}_audit_logs" (user_id, action, resource_type, resource_id, metadata, ip_address)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [
-        req.auth.userId,
+        req.workspace.userId,
         'repo.scan.cli',
         'repo',
         repoId,
@@ -253,12 +248,12 @@ export async function repoRoutes(app: FastifyInstance) {
     return { repo_id: repoId, metadata: summary };
   });
 
-  app.post('/api/v1/repos/scan', { preHandler: [authMiddleware, requireRole('owner', 'admin')] }, async (req, reply) => {
+  app.post('/api/v1/repos/scan', { preHandler: [localContextMiddleware, requireRole('owner', 'admin')] }, async (req, reply) => {
     const body = (req.body ?? {}) as RepoMetadataIngestBody & { repo?: string };
     if (!body.repo?.trim()) return reply.status(400).send({ error: 'repo is required' });
 
     const repoRows = await AppDataSource.query(
-      `SELECT id, metadata FROM "${req.auth.orgId}_repos" WHERE name = $1 AND is_deleted = false LIMIT 1`,
+      `SELECT id, metadata FROM "${req.workspace.orgId}_repos" WHERE name = $1 AND is_deleted = false LIMIT 1`,
       [body.repo.trim()],
     ) as Array<{ id: string; metadata: Record<string, unknown> | string | null }>;
     if (repoRows.length === 0) return reply.status(404).send({ error: 'Repo not found' });
@@ -271,17 +266,17 @@ export async function repoRoutes(app: FastifyInstance) {
       mode: 'snapshot',
     });
     await AppDataSource.query(
-      `UPDATE "${req.auth.orgId}_repos"
+      `UPDATE "${req.workspace.orgId}_repos"
           SET metadata = $1,
               updated_at = NOW()
         WHERE id = $2`,
       [JSON.stringify(metadata), repoRows[0].id],
     );
     await AppDataSource.query(
-      `INSERT INTO "${req.auth.orgId}_audit_logs" (user_id, action, resource_type, resource_id, metadata, ip_address)
+      `INSERT INTO "${req.workspace.orgId}_audit_logs" (user_id, action, resource_type, resource_id, metadata, ip_address)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [
-        req.auth.userId,
+        req.workspace.userId,
         'repo.scan.cli',
         'repo',
         repoRows[0].id,
@@ -293,22 +288,22 @@ export async function repoRoutes(app: FastifyInstance) {
   });
 
   // Get compiled rules
-  app.get('/api/v1/repos/:repoId/compiled', { preHandler: [authMiddleware] }, async (req) => {
+  app.get('/api/v1/repos/:repoId/compiled', { preHandler: [localContextMiddleware] }, async (req) => {
     const { repoId } = req.params as { repoId: string };
     const rows = await AppDataSource.query(
-      `SELECT content, onboarding, version, compiled_at FROM "${req.auth.orgId}_compiled_rules"
+      `SELECT content, onboarding, version, compiled_at FROM "${req.workspace.orgId}_compiled_rules"
        WHERE repo_id = $1 AND is_deleted = false ORDER BY version DESC LIMIT 1`,
       [repoId],
     ) as CompiledResponseRow[];
     if (rows.length === 0) return { compiled: false };
-    return { compiled: true, ...rows[0], content: await enrichRulePack(req.auth.orgId, rows[0].content) };
+    return { compiled: true, ...rows[0], content: await enrichRulePack(req.workspace.orgId, rows[0].content) };
   });
 
   // Inspect the lineage behind one compiled memory item.
-  app.get('/api/v1/repos/:repoId/compiled/:ruleId/lineage', { preHandler: [authMiddleware] }, async (req, reply) => {
+  app.get('/api/v1/repos/:repoId/compiled/:ruleId/lineage', { preHandler: [localContextMiddleware] }, async (req, reply) => {
     const { repoId, ruleId } = req.params as { repoId: string; ruleId: string };
     const rows = await AppDataSource.query(
-      `SELECT content, version, compiled_at FROM "${req.auth.orgId}_compiled_rules"
+      `SELECT content, version, compiled_at FROM "${req.workspace.orgId}_compiled_rules"
        WHERE repo_id = $1 AND rule_type = 'repo' AND is_deleted = false
        ORDER BY version DESC LIMIT 1`,
       [repoId],
@@ -338,8 +333,8 @@ export async function repoRoutes(app: FastifyInstance) {
                   e.created_at,
                   e.updated_at,
                   COALESCE(NULLIF(u.name, ''), u.email, e.author_id) AS author_name
-             FROM "${req.auth.orgId}_experiences" e
-             LEFT JOIN "${req.auth.orgId}_users" u
+             FROM "${req.workspace.orgId}_experiences" e
+             LEFT JOIN "${req.workspace.orgId}_users" u
                ON u.id = e.author_id
               AND u.is_deleted = false
             WHERE e.repo_id = $1
@@ -351,7 +346,7 @@ export async function repoRoutes(app: FastifyInstance) {
     const feedbackRows = sourceIds.length > 0
       ? await AppDataSource.query(
           `SELECT id, compiled_rule_id, source_experience_ids, outcome, note, user_id, created_at
-             FROM "${req.auth.orgId}_feedback_events"
+             FROM "${req.workspace.orgId}_feedback_events"
             WHERE repo_id = $1
               AND (compiled_rule_id = $2 OR source_experience_ids::text LIKE ANY($3))
             ORDER BY created_at DESC
@@ -362,7 +357,7 @@ export async function repoRoutes(app: FastifyInstance) {
     const reviewRows = sourceIds.length > 0
       ? await AppDataSource.query(
           `SELECT id, compiled_rule_id, review_item_reason, action, note, source_experience_ids, user_id, created_at
-             FROM "${req.auth.orgId}_review_events"
+             FROM "${req.workspace.orgId}_review_events"
             WHERE repo_id = $1
               AND (compiled_rule_id = $2 OR source_experience_ids::text LIKE ANY($3))
             ORDER BY created_at DESC
@@ -373,7 +368,7 @@ export async function repoRoutes(app: FastifyInstance) {
     const trajectoryRows = sourceIds.length > 0
       ? await AppDataSource.query(
           `SELECT id, repo_id, user_id, task, outcome, summary, events, candidates, status, created_at, updated_at
-             FROM "${req.auth.orgId}_trajectory_events"
+             FROM "${req.workspace.orgId}_trajectory_events"
             WHERE repo_id = $1
               AND candidates::text LIKE ANY($2)
             ORDER BY created_at DESC
@@ -399,10 +394,10 @@ export async function repoRoutes(app: FastifyInstance) {
   });
 
   // Delete one compiled rule by deleting its source experiences, then recompile
-  app.delete('/api/v1/repos/:repoId/compiled/:ruleId', { preHandler: [authMiddleware, requireRole('owner', 'admin'), accountWriteGuard, accountRecentReauthGuard] }, async (req, reply) => {
+  app.delete('/api/v1/repos/:repoId/compiled/:ruleId', { preHandler: [localContextMiddleware, requireRole('owner', 'admin')] }, async (req, reply) => {
     const { repoId, ruleId } = req.params as { repoId: string; ruleId: string };
     const rows = await AppDataSource.query(
-      `SELECT content FROM "${req.auth.orgId}_compiled_rules"
+      `SELECT content FROM "${req.workspace.orgId}_compiled_rules"
        WHERE repo_id = $1 AND is_deleted = false ORDER BY version DESC LIMIT 1`,
       [repoId],
     ) as Array<{ content: RulePack | string }>;
@@ -424,7 +419,7 @@ export async function repoRoutes(app: FastifyInstance) {
     }
 
     const deletedRows = await AppDataSource.query(
-      `UPDATE "${req.auth.orgId}_experiences"
+      `UPDATE "${req.workspace.orgId}_experiences"
           SET is_deleted = true,
               updated_at = NOW()
         WHERE repo_id = $1
@@ -434,18 +429,18 @@ export async function repoRoutes(app: FastifyInstance) {
       [repoId, sourceIds],
     ) as Array<{ id: string }>;
 
-    await compilerService.compileRepo(req.auth.orgId, repoId);
-    await compilerService.compileOrgRules(req.auth.orgId);
+    await compilerService.compileRepo(req.workspace.orgId, repoId);
+    await compilerService.compileOrgRules(req.workspace.orgId);
 
     return { success: true, deleted_sources: deletedRows.length };
   });
 
   // Delete repo
-  app.delete('/api/v1/repos/:repoId', { preHandler: [authMiddleware, requireRole('owner', 'admin'), accountWriteGuard, accountRecentReauthGuard] }, async (req, reply) => {
+  app.delete('/api/v1/repos/:repoId', { preHandler: [localContextMiddleware, requireRole('owner', 'admin')] }, async (req, reply) => {
     const { repoId } = req.params as { repoId: string };
     const body = (req.body ?? {}) as { confirm_name?: string };
     const rows = await AppDataSource.query(
-      `SELECT name FROM "${req.auth.orgId}_repos" WHERE id = $1 AND is_deleted = false LIMIT 1`,
+      `SELECT name FROM "${req.workspace.orgId}_repos" WHERE id = $1 AND is_deleted = false LIMIT 1`,
       [repoId],
     ) as Array<{ name: string }>;
     if (rows.length === 0) return reply.status(404).send({ error: 'Repo not found' });
@@ -457,18 +452,18 @@ export async function repoRoutes(app: FastifyInstance) {
     }
 
     await AppDataSource.query(
-      `UPDATE "${req.auth.orgId}_repos" SET is_deleted = true, updated_at = NOW() WHERE id = $1`,
+      `UPDATE "${req.workspace.orgId}_repos" SET is_deleted = true, updated_at = NOW() WHERE id = $1`,
       [repoId],
     );
     await AppDataSource.query(
-      `UPDATE "${req.auth.orgId}_experiences" SET is_deleted = true, updated_at = NOW() WHERE repo_id = $1 AND is_deleted = false`,
+      `UPDATE "${req.workspace.orgId}_experiences" SET is_deleted = true, updated_at = NOW() WHERE repo_id = $1 AND is_deleted = false`,
       [repoId],
     );
     await AppDataSource.query(
-      `UPDATE "${req.auth.orgId}_compiled_rules" SET is_deleted = true WHERE repo_id = $1 AND is_deleted = false`,
+      `UPDATE "${req.workspace.orgId}_compiled_rules" SET is_deleted = true WHERE repo_id = $1 AND is_deleted = false`,
       [repoId],
     );
-    await compilerService.compileOrgRules(req.auth.orgId);
+    await compilerService.compileOrgRules(req.workspace.orgId);
 
     return { success: true };
   });

@@ -13,7 +13,7 @@ from scratch.
 This repository contains the complete open-source product: a Fastify API,
 background workers, PostgreSQL, Redis, a small web console, and Docker Compose.
 It starts with a local owner workspace, so you can try the full flow without
-setting up an account system.
+setting up users first.
 
 ## What's Included
 
@@ -74,7 +74,7 @@ monkeys-memory capture --repo my-repo --title "Adapter rule" --claim "Always val
 ```
 
 In local mode, API requests are mapped to the local owner workspace. You do not
-need a browser auth flow or a cloud token.
+need a browser setup flow or a cloud token.
 
 ## Project Layout
 

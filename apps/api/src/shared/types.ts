@@ -1,18 +1,9 @@
-// --- Auth ---
+// --- Local workspace context ---
 
-export interface AccountContext {
-  accountId: string;
-  sessionId?: string;
-  cliTokenId?: string;
-  csrfTokenHash?: string;
-  reauthUntil?: string | null;
-}
-
-export interface AuthContext {
+export interface WorkspaceContext {
   orgId: string;
   userId: string;
   role: string;
-  accountId?: string;
 }
 
 // --- Experience ---

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
-import { authMiddleware, requireRole } from '../../middleware/auth.middleware.js';
+import { localContextMiddleware, requireRole } from '../../middleware/local-context.middleware.js';
 import { AppDataSource } from '../../database/ormconfig.js';
 import type { CompiledRule, ReviewQueueItem, RulePack } from '../../shared/types.js';
 
@@ -206,40 +206,40 @@ function emptyAggregateCounters() {
 }
 
 export async function analyticsRoutes(app: FastifyInstance) {
-  app.get('/api/v1/analytics/overview', { preHandler: [authMiddleware] }, async (req) => {
+  app.get('/api/v1/analytics/overview', { preHandler: [localContextMiddleware] }, async (req) => {
     const expCount = await AppDataSource.query(
-      `SELECT COUNT(*) as count FROM "${req.auth.orgId}_experiences" WHERE status = 'active' AND is_deleted = false`,
+      `SELECT COUNT(*) as count FROM "${req.workspace.orgId}_experiences" WHERE status = 'active' AND is_deleted = false`,
     );
     const repoCount = await AppDataSource.query(
-      `SELECT COUNT(*) as count FROM "${req.auth.orgId}_repos" WHERE is_deleted = false`,
+      `SELECT COUNT(*) as count FROM "${req.workspace.orgId}_repos" WHERE is_deleted = false`,
     );
     const memberCount = await AppDataSource.query(
-      `SELECT COUNT(*) as count FROM "${req.auth.orgId}_users" WHERE is_deleted = false`,
+      `SELECT COUNT(*) as count FROM "${req.workspace.orgId}_users" WHERE is_deleted = false`,
     );
 
     const today = new Date().toISOString().slice(0, 10);
     const metrics = await AppDataSource.query(
-      `SELECT metric_type, SUM(count) as total FROM "${req.auth.orgId}_usage_metrics"
+      `SELECT metric_type, SUM(count) as total FROM "${req.workspace.orgId}_usage_metrics"
        WHERE date >= $1 GROUP BY metric_type`,
       [new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)],
     );
     const metricDetails = await AppDataSource.query(
       `SELECT metric_type, count, details
-         FROM "${req.auth.orgId}_usage_metrics"
+         FROM "${req.workspace.orgId}_usage_metrics"
         WHERE date >= $1
           AND metric_type IN ('compile_latency_ms', 'compile_sync_delay_ms')`,
       [new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)],
     ) as MetricDetailRow[];
     const feedbackRows = await AppDataSource.query(
       `SELECT outcome, COUNT(*) as count
-         FROM "${req.auth.orgId}_feedback_events"
+         FROM "${req.workspace.orgId}_feedback_events"
         WHERE created_at >= $1
         GROUP BY outcome`,
       [new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()],
     ) as Array<{ outcome: string; count: string }>;
     const reviewRows = await AppDataSource.query(
       `SELECT action, review_item_reason, COUNT(*) as count
-         FROM "${req.auth.orgId}_review_events"
+         FROM "${req.workspace.orgId}_review_events"
         WHERE created_at >= $1
         GROUP BY action, review_item_reason`,
       [new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()],
@@ -248,18 +248,18 @@ export async function analyticsRoutes(app: FastifyInstance) {
       `SELECT
           COUNT(*) FILTER (WHERE policy ->> 'redaction_status' = 'redacted') as redacted,
           COUNT(*) FILTER (WHERE policy ->> 'sensitivity' = 'secret-adjacent') as secret_adjacent
-         FROM "${req.auth.orgId}_experiences"
+         FROM "${req.workspace.orgId}_experiences"
         WHERE is_deleted = false`,
     ) as Array<{ redacted: string; secret_adjacent: string }>;
     const compiledRows = await AppDataSource.query(
       `SELECT cr.repo_id, r.name as repo_name, r.metadata as repo_metadata, cr.rule_type, cr.content, cr.compiled_at
-         FROM "${req.auth.orgId}_compiled_rules" cr
-         LEFT JOIN "${req.auth.orgId}_repos" r ON r.id = cr.repo_id
+         FROM "${req.workspace.orgId}_compiled_rules" cr
+         LEFT JOIN "${req.workspace.orgId}_repos" r ON r.id = cr.repo_id
         WHERE cr.is_deleted = false
           AND (r.is_deleted = false OR cr.repo_id IS NULL)
         ORDER BY cr.rule_type, cr.repo_id, cr.version DESC`,
     ) as CompiledRow[];
-    const trajectoryRows = await getTrajectoryRows(req.auth.orgId, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+    const trajectoryRows = await getTrajectoryRows(req.workspace.orgId, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
 
     const latestRepoPacks = new Map<string, CompiledRow & { pack: ReturnType<typeof parseRulePack> }>();
     let latestOrgPack: ReturnType<typeof parseRulePack> | null = null;
@@ -462,7 +462,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/api/v1/analytics/evaluation-export', { preHandler: [authMiddleware, requireRole('owner', 'admin')] }, async (req) => {
+  app.get('/api/v1/analytics/evaluation-export', { preHandler: [localContextMiddleware, requireRole('owner', 'admin')] }, async (req) => {
     const query = req.query as { days?: string };
     const days = clampDays(query.days);
     const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -470,35 +470,35 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     const metrics = await AppDataSource.query(
       `SELECT metric_type, SUM(count) as total
-         FROM "${req.auth.orgId}_usage_metrics"
+         FROM "${req.workspace.orgId}_usage_metrics"
         WHERE date >= $1
         GROUP BY metric_type`,
       [sinceDate],
     ) as Array<{ metric_type: string; total: string }>;
     const feedbackRows = await AppDataSource.query(
       `SELECT outcome, COUNT(*) as count
-         FROM "${req.auth.orgId}_feedback_events"
+         FROM "${req.workspace.orgId}_feedback_events"
         WHERE created_at >= $1
         GROUP BY outcome`,
       [sinceTimestamp],
     ) as Array<{ outcome: string; count: string }>;
     const reviewRows = await AppDataSource.query(
       `SELECT action, review_item_reason, COUNT(*) as count
-         FROM "${req.auth.orgId}_review_events"
+         FROM "${req.workspace.orgId}_review_events"
         WHERE created_at >= $1
         GROUP BY action, review_item_reason`,
       [sinceTimestamp],
     ) as Array<{ action: string; review_item_reason: string | null; count: string }>;
     const compiledRows = await AppDataSource.query(
       `SELECT cr.repo_id, r.name as repo_name, r.metadata as repo_metadata, cr.rule_type, cr.content, cr.compiled_at
-         FROM "${req.auth.orgId}_compiled_rules" cr
-         LEFT JOIN "${req.auth.orgId}_repos" r ON r.id = cr.repo_id
+         FROM "${req.workspace.orgId}_compiled_rules" cr
+         LEFT JOIN "${req.workspace.orgId}_repos" r ON r.id = cr.repo_id
         WHERE cr.is_deleted = false
           AND cr.rule_type = 'repo'
           AND r.is_deleted = false
         ORDER BY cr.repo_id, cr.version DESC`,
     ) as CompiledRow[];
-    const trajectoryRows = await getTrajectoryRows(req.auth.orgId, sinceTimestamp);
+    const trajectoryRows = await getTrajectoryRows(req.workspace.orgId, sinceTimestamp);
 
     const latestRepoRows = new Map<string, CompiledRow & { pack: ReturnType<typeof parseRulePack> }>();
     for (const row of compiledRows) {
@@ -555,7 +555,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         if (enabled) scenarioCounts[key] = (scenarioCounts[key] ?? 0) + 1;
       }
       return {
-        repo_key: anonymize(`${req.auth.orgId}:${repoId}`),
+        repo_key: anonymize(`${req.workspace.orgId}:${repoId}`),
         compiled_at: row.compiled_at,
         source_experience_count: pack.source_experience_count ?? 0,
         item_count: items.length,
@@ -569,7 +569,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         semantic_relations: semanticRelations,
         redaction_category_counts: redactionCounts,
         scenario_hints: hints,
-        items: items.map(item => evaluationItem(req.auth.orgId, repoId, item)),
+        items: items.map(item => evaluationItem(req.workspace.orgId, repoId, item)),
       };
     });
 

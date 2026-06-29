@@ -1,26 +1,26 @@
 import type { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middleware/auth.middleware.js';
+import { localContextMiddleware } from '../../middleware/local-context.middleware.js';
 import { retrieveService } from './retrieve.service.js';
 import { getAuditQueue } from '../../jobs/queue.js';
 import type { RetrieveRequest } from '../../shared/types.js';
 import { agentActionsService } from '../agent-actions/agent-actions.service.js';
 
 export async function retrieveRoutes(app: FastifyInstance) {
-  app.post('/api/v1/retrieve', { preHandler: [authMiddleware] }, async (req, reply) => {
+  app.post('/api/v1/retrieve', { preHandler: [localContextMiddleware] }, async (req, reply) => {
     const body = req.body as RetrieveRequest;
     if (!body.repo) return reply.status(400).send({ error: 'repo is required' });
-    const retrieveRequest: RetrieveRequest = { ...body, user_id: body.user_id ?? req.auth.userId };
+    const retrieveRequest: RetrieveRequest = { ...body, user_id: body.user_id ?? req.workspace.userId };
 
     const start = Date.now();
-    const result = await retrieveService.retrieve(req.auth.orgId, retrieveRequest);
-    const agentActions = await agentActionsService.maybeLeaseActions(req.auth.orgId, body.repo, req.auth.userId, body.agent_capabilities);
+    const result = await retrieveService.retrieve(req.workspace.orgId, retrieveRequest);
+    const agentActions = await agentActionsService.maybeLeaseActions(req.workspace.orgId, body.repo, req.workspace.userId, body.agent_capabilities);
     const latency = Date.now() - start;
 
     // Async audit
     getAuditQueue().add('audit', {
-      orgId: req.auth.orgId,
+      orgId: req.workspace.orgId,
       entry: {
-        user_id: req.auth.userId,
+        user_id: req.workspace.userId,
         action: 'retrieve',
         resource_type: 'repo',
         resource_id: body.repo,

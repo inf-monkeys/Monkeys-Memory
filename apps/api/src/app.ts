@@ -23,7 +23,7 @@ export async function buildApp() {
 
   await app.register(cors, {
     origin: (origin, cb) => {
-      if (!origin || env.auth.allowedOrigins.includes(origin)) {
+      if (!origin || env.cors.allowedOrigins.includes(origin)) {
         cb(null, true);
       } else {
         cb(null, false);
@@ -56,8 +56,8 @@ export async function buildApp() {
   // Health check
   app.get('/health', async () => ({ status: 'ok' }));
 
-  // Mount product routes. The open-source local product runs with a default
-  // local owner and no public account browser surface.
+  // Mount product routes. The open-source product runs with a local owner
+  // workspace and no hosted browser surface.
   await retrieveRoutes(app);
   await captureRoutes(app);
   await feedbackRoutes(app);

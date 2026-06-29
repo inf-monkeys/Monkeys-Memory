@@ -4,7 +4,7 @@
 
 This repository is the open-source Monkeys Memory product. It includes the
 database-backed API, workers, lightweight console, and Docker Compose
-deployment. It must remain useful without a hosted Monkeys Memory account.
+deployment. It must remain useful without a hosted Monkeys Memory workspace.
 
 Keep the open-source product distinct from the commercial SaaS distribution:
 
@@ -19,7 +19,7 @@ Keep the open-source product distinct from the commercial SaaS distribution:
 - `apps/api/`: open-source database-backed API, workers, TypeORM migrations, and
   Dockerfile.
 - `apps/console/`: lightweight static web UI for local administration and CLI
-  authorization.
+  setup.
 - `compose.yaml`: one-command local deployment with PostgreSQL, Redis, API,
   workers, and console.
 

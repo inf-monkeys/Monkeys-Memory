@@ -1,21 +1,21 @@
 import type { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middleware/auth.middleware.js';
+import { localContextMiddleware } from '../../middleware/local-context.middleware.js';
 import { getAuditQueue } from '../../jobs/queue.js';
 import { feedbackService } from './feedback.service.js';
 import type { AgentMemoryEvaluationRequest, FeedbackRequest } from '../../shared/types.js';
 
 export async function feedbackRoutes(app: FastifyInstance) {
-  app.post('/api/v1/repos/:repoId/compiled/:ruleId/feedback', { preHandler: [authMiddleware] }, async (req, reply) => {
+  app.post('/api/v1/repos/:repoId/compiled/:ruleId/feedback', { preHandler: [localContextMiddleware] }, async (req, reply) => {
     const { repoId, ruleId } = req.params as { repoId: string; ruleId: string };
     const body = req.body as FeedbackRequest;
     if (!body.outcome) return reply.status(400).send({ error: 'outcome is required' });
 
-    const result = await feedbackService.addFeedback(req.auth.orgId, req.auth.userId, repoId, ruleId, body);
+    const result = await feedbackService.addFeedback(req.workspace.orgId, req.workspace.userId, repoId, ruleId, body);
 
     getAuditQueue().add('audit', {
-      orgId: req.auth.orgId,
+      orgId: req.workspace.orgId,
       entry: {
-        user_id: req.auth.userId,
+        user_id: req.workspace.userId,
         action: 'feedback',
         resource_type: 'compiled_rule',
         resource_id: ruleId,
@@ -27,19 +27,19 @@ export async function feedbackRoutes(app: FastifyInstance) {
     return reply.status(201).send(result);
   });
 
-  app.post('/api/v1/agent/memory-evaluations', { preHandler: [authMiddleware] }, async (req, reply) => {
+  app.post('/api/v1/agent/memory-evaluations', { preHandler: [localContextMiddleware] }, async (req, reply) => {
     const body = req.body as AgentMemoryEvaluationRequest;
     if (!body.repo) return reply.status(400).send({ error: 'repo is required' });
     if (!Array.isArray(body.evaluations) || body.evaluations.length === 0) {
       return reply.status(400).send({ error: 'evaluations is required' });
     }
 
-    const result = await feedbackService.addAgentEvaluation(req.auth.orgId, req.auth.userId, body);
+    const result = await feedbackService.addAgentEvaluation(req.workspace.orgId, req.workspace.userId, body);
 
     getAuditQueue().add('audit', {
-      orgId: req.auth.orgId,
+      orgId: req.workspace.orgId,
       entry: {
-        user_id: req.auth.userId,
+        user_id: req.workspace.userId,
         action: 'agent.memory_evaluate',
         resource_type: 'repo',
         resource_id: body.repo,

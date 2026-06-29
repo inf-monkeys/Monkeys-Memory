@@ -15,23 +15,6 @@ async function startAuditWorker() {
     async (job) => {
       const { orgId, entry } = job.data as { orgId: string; entry: AuditEntry };
 
-      if (orgId === 'account') {
-        await AppDataSource.query(
-          `INSERT INTO account_audit_logs (id, account_id, action, resource_type, resource_id, metadata, ip_address)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            `${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
-            entry.user_id,
-            entry.action,
-            entry.resource_type ?? null,
-            entry.resource_id ?? null,
-            JSON.stringify(entry.metadata),
-            entry.ip_address ?? null,
-          ],
-        );
-        return;
-      }
-
       await AppDataSource.query(
         `INSERT INTO "${orgId}_audit_logs" (user_id, action, resource_type, resource_id, metadata, ip_address)
          VALUES ($1, $2, $3, $4, $5, $6)`,

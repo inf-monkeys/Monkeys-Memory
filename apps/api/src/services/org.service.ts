@@ -5,15 +5,8 @@ import { TenantTableManager } from '../database/tenant-table-manager.js';
 export class OrgService {
   async createOrg(data: {
     name: string;
-    plan: string;
-    ownerEmail: string;
-    ownerAccountId?: string;
-    maxRepos?: number;
-    maxMembers?: number;
-    maxExperiences?: number;
     ownerUser?: {
       id: string;
-      accountId?: string;
       email: string;
       name: string;
       role: string;
@@ -30,13 +23,7 @@ export class OrgService {
       await queryRunner.manager.insert(OrgEntity, {
         id: orgId,
         name: data.name,
-        plan: data.plan,
-        ownerEmail: data.ownerEmail,
-        ownerAccountId: data.ownerAccountId ?? null,
         status: 'active',
-        maxRepos: data.maxRepos ?? 1,
-        maxMembers: data.maxMembers ?? 1,
-        maxExperiences: data.maxExperiences ?? 100,
       });
 
       // 2. 创建租户表
@@ -45,11 +32,10 @@ export class OrgService {
 
       if (data.ownerUser) {
         await queryRunner.query(
-          `INSERT INTO "${orgId}_users" (id, account_id, email, name, role)
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO "${orgId}_users" (id, email, name, role)
+           VALUES ($1, $2, $3, $4)`,
           [
             data.ownerUser.id,
-            data.ownerUser.accountId ?? null,
             data.ownerUser.email,
             data.ownerUser.name,
             data.ownerUser.role,

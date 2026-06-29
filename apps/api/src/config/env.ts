@@ -33,10 +33,10 @@ function resolveAllowedOrigins(webBaseUrl: string, configuredOrigins?: string | 
   ));
 }
 
-const webBaseUrl = readConfig('auth.webBaseUrl', 'http://localhost:5173');
+const consoleBaseUrl = readConfig('console.baseUrl', 'http://localhost:5173');
 const allowedOrigins = resolveAllowedOrigins(
-  webBaseUrl,
-  readConfig<string | string[] | undefined>('auth.allowedOrigins', undefined),
+  consoleBaseUrl,
+  readConfig<string | string[] | undefined>('cors.allowedOrigins', undefined),
 );
 
 export const env = {
@@ -83,9 +83,9 @@ export const env = {
     fallbackToLocal: String(readConfig('embeddings.fallbackToLocal', true)) === 'true',
   },
 
-  auth: {
-    appBaseUrl: readConfig('auth.appBaseUrl', 'http://localhost:3000'),
-    webBaseUrl,
+  cors: {
+    apiBaseUrl: readConfig('server.publicBaseUrl', 'http://localhost:3000'),
+    consoleBaseUrl,
     allowedOrigins,
   },
 

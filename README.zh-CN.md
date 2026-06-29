@@ -11,7 +11,7 @@ Monkeys Memory 给 coding agent 一层项目记忆。
 
 这个仓库包含完整的开源产品：Fastify API、后台 workers、PostgreSQL、Redis、
 轻量控制台和 Docker Compose。启动后会有一个本地 owner workspace，可以直接
-走完整流程，不需要额外搭账号体系。
+走完整流程，不需要先创建用户。
 
 ## 包含什么
 
@@ -66,7 +66,7 @@ monkeys-memory retrieve --repo my-repo --path src/index.ts --task feature
 monkeys-memory capture --repo my-repo --title "Adapter rule" --claim "Always validate through the adapter." --path "src/adapter/**" --task feature
 ```
 
-local 模式下，API 会把请求归到本地 owner workspace。这里不需要浏览器授权
+local 模式下，API 会把请求归到本地 owner workspace。这里不需要浏览器设置
 流程，也不需要云端 token。
 
 ## 项目结构

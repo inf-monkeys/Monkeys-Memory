@@ -30,9 +30,10 @@ embeddings:
   timeoutMs: 10000
   fallbackToLocal: true
 
-auth:
-  appBaseUrl: http://localhost:3000
-  webBaseUrl: http://localhost:8080
+console:
+  baseUrl: http://localhost:8080
+
+cors:
   allowedOrigins:
     - http://localhost:8080
     - http://127.0.0.1:8080

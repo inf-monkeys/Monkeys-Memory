@@ -42,10 +42,3 @@ export class ConflictError extends AppError {
     this.name = 'ConflictError';
   }
 }
-
-export class QuotaExceededError extends AppError {
-  constructor(message = 'Quota exceeded') {
-    super(429, message);
-    this.name = 'QuotaExceededError';
-  }
-}

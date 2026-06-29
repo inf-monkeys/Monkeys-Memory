@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { accountAuthMiddleware, authMiddleware, requireRole } from '../../middleware/auth.middleware.js';
+import { localContextMiddleware, requireRole } from '../../middleware/local-context.middleware.js';
 import { AppDataSource } from '../../database/ormconfig.js';
-import { localAuthService } from '../auth/local-auth.service.js';
+import { localWorkspaceService } from '../workspace/local-workspace.service.js';
 
 const PLUGIN_KINDS = new Set(['quality', 'semantic', 'policy', 'export', 'custom']);
 
@@ -23,25 +23,25 @@ function normalizeCompileConfig(input: Record<string, unknown>): Record<string, 
 }
 
 export async function orgRoutes(app: FastifyInstance) {
-  app.get('/api/v1/orgs', { preHandler: [accountAuthMiddleware] }, async () => {
-    return { organizations: await localAuthService.listOrganizations() };
+  app.get('/api/v1/orgs', async () => {
+    return { organizations: await localWorkspaceService.listOrganizations() };
   });
 
-  app.post('/api/v1/orgs', { preHandler: [accountAuthMiddleware] }, async (req, reply) => {
+  app.post('/api/v1/orgs', async (req, reply) => {
     const body = req.body as { name: string };
     if (!body.name?.trim()) return reply.status(400).send({ error: 'name is required' });
 
-    const result = await localAuthService.createOrganization(body.name);
+    const result = await localWorkspaceService.createOrganization(body.name);
     return reply.status(201).send(result);
   });
 
   // Get org info
-  app.get('/api/v1/admin/orgs/:orgId', { preHandler: [authMiddleware] }, async (req, reply) => {
+  app.get('/api/v1/admin/orgs/:orgId', { preHandler: [localContextMiddleware] }, async (req, reply) => {
     const { orgId } = req.params as { orgId: string };
-    if (req.auth.orgId !== orgId) return reply.status(403).send({ error: 'Forbidden' });
+    if (req.workspace.orgId !== orgId) return reply.status(403).send({ error: 'Forbidden' });
 
     const rows = await AppDataSource.query(
-      `SELECT id, name, plan, status, max_repos, max_members, max_experiences, compile_config, created_at FROM orgs WHERE id = $1`,
+      `SELECT id, name, status, compile_config, created_at FROM orgs WHERE id = $1`,
       [orgId],
     );
     if (rows.length === 0) return reply.status(404).send({ error: 'Org not found' });
@@ -49,9 +49,9 @@ export async function orgRoutes(app: FastifyInstance) {
   });
 
   // Update org settings
-  app.patch('/api/v1/admin/orgs/:orgId', { preHandler: [authMiddleware, requireRole('owner')] }, async (req, reply) => {
+  app.patch('/api/v1/admin/orgs/:orgId', { preHandler: [localContextMiddleware, requireRole('owner')] }, async (req, reply) => {
     const { orgId } = req.params as { orgId: string };
-    if (req.auth.orgId !== orgId) return reply.status(403).send({ error: 'Forbidden' });
+    if (req.workspace.orgId !== orgId) return reply.status(403).send({ error: 'Forbidden' });
 
     const body = req.body as { name?: string; compile_config?: Record<string, unknown> };
     const sets: string[] = ['updated_at = NOW()'];
@@ -82,9 +82,9 @@ export async function orgRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  app.delete('/api/v1/admin/orgs/:orgId', { preHandler: [authMiddleware, requireRole('owner')] }, async (req, reply) => {
+  app.delete('/api/v1/admin/orgs/:orgId', { preHandler: [localContextMiddleware, requireRole('owner')] }, async (req, reply) => {
     const { orgId } = req.params as { orgId: string };
-    if (req.auth.orgId !== orgId) return reply.status(403).send({ error: 'Forbidden' });
+    if (req.workspace.orgId !== orgId) return reply.status(403).send({ error: 'Forbidden' });
 
     const body = (req.body ?? {}) as { confirm_name?: string };
     const rows = await AppDataSource.query(

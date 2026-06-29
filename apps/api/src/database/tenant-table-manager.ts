@@ -26,7 +26,6 @@ export class TenantTableManager {
       name: t,
       columns: [
         { name: 'id', type: 'varchar', length: '64', isPrimary: true },
-        { name: 'account_id', type: 'varchar', length: '64', isNullable: true },
         { name: 'email', type: 'varchar', length: '255' },
         { name: 'name', type: 'varchar', length: '255' },
         { name: 'role', type: 'varchar', length: '32', default: "'member'" },
@@ -36,7 +35,6 @@ export class TenantTableManager {
       ],
     }), true);
     await this.queryRunner.createIndex(t, new TableIndex({ name: `idx_${t}_email`, columnNames: ['email'], isUnique: true }));
-    await this.queryRunner.createIndex(t, new TableIndex({ name: `idx_${t}_account`, columnNames: ['account_id'] }));
   }
 
   private async createReposTable() {
