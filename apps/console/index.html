@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Monkeys Memory</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Open Source</p>
+          <h1>Monkeys Memory</h1>
+        </div>
+        <div class="status" id="healthStatus">Checking API...</div>
+      </header>
+
+      <section class="grid">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Organization</h2>
+              <p>Create or select the local workspace agents should use. No user setup is required.</p>
+            </div>
+          </div>
+
+          <form class="inline-form" id="orgForm">
+            <input id="orgNameInput" placeholder="Engineering" />
+            <button type="submit">Create org</button>
+          </form>
+
+          <label>
+            Active org
+            <select id="orgSelect"></select>
+          </label>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Repositories</h2>
+              <p>Add repos that can capture and retrieve memory.</p>
+            </div>
+          </div>
+
+          <form class="inline-form" id="repoForm">
+            <input id="repoNameInput" placeholder="my-repo" />
+            <button type="submit">Add repo</button>
+          </form>
+
+          <div class="list" id="repoList"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Capture</h2>
+              <p>Save a reusable engineering rule.</p>
+            </div>
+          </div>
+
+          <form class="form" id="captureForm">
+            <label>
+              Repository
+              <input id="captureRepoInput" placeholder="my-repo" required />
+            </label>
+            <label>
+              Title
+              <input id="captureTitleInput" placeholder="Adapter validation" required />
+            </label>
+            <label>
+              Claim
+              <textarea id="captureClaimInput" rows="4" placeholder="Always validate through the adapter before processing." required></textarea>
+            </label>
+            <label>
+              Paths
+              <input id="capturePathsInput" placeholder="src/adapter/**" required />
+            </label>
+            <label>
+              Tasks
+              <input id="captureTasksInput" placeholder="feature,bugfix" />
+            </label>
+            <button class="primary" type="submit">Capture memory</button>
+          </form>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-head">
+            <div>
+              <h2>Retrieve</h2>
+              <p>Preview the memory an agent would receive.</p>
+            </div>
+          </div>
+
+          <form class="retrieve-form" id="retrieveForm">
+            <input id="retrieveRepoInput" placeholder="repo" required />
+            <input id="retrievePathInput" placeholder="path" />
+            <input id="retrieveTaskInput" placeholder="task" />
+            <button type="submit">Retrieve</button>
+          </form>
+
+          <pre class="output" id="retrieveOutput">{}</pre>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-head">
+            <div>
+              <h2>CLI Setup</h2>
+              <p>Point the agent CLI at this local API. Local mode uses the local owner workspace.</p>
+            </div>
+          </div>
+
+          <pre class="command">npm install -g @inf-monkeys-tech/monkeys-memory-cli
+monkeys-memory config set api-url http://localhost:3000
+export MONKEYS_MEMORY_TOKEN=local
+monkeys-memory retrieve --repo my-repo --path src/index.ts --task feature</pre>
+        </section>
+      </section>
+    </main>
+
+    <div class="toast" id="toast"></div>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

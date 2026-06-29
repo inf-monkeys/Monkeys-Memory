@@ -1,69 +1,62 @@
 # Repository Guidelines
 
 ## Product Boundary
-This repository is the standalone open-source Monkeys Memory project. It is a
-local-first OSS engine with its own CLI, Skills, schemas, install script, and
-file-based memory compiler/retriever/capture workflow.
 
-This repository is completely independent from the commercial SaaS product.
-Do not add SaaS account flows, hosted API dependencies, browser login, billing,
-organizations, quotas, PATs, CLI token storage, server persistence, or
-multi-tenant behavior here.
+This repository is the open-source Monkeys Memory product. It includes the
+database-backed API, workers, lightweight console, and Docker Compose
+deployment. It must remain useful without a hosted Monkeys Memory account.
 
-The SaaS product lives in separate private repositories:
+Keep the open-source product distinct from the commercial SaaS distribution:
 
-- `monkeys-memory-server/`: private hosted backend.
-- `monkeys-memory-web/`: private hosted frontend.
-- `Monkeys-Memory-Nginx/`: private SaaS edge/proxy routing.
-
-The SaaS CLI lives in `monkeys-memory-cli/` and is the only open-source part of
-the SaaS product. It is published as
-`@inf-monkeys-tech/monkeys-memory-cli`, uses browser login, talks to the hosted
-API, and owns the bundled SaaS Skills for agent usage. Do not copy SaaS CLI
-behavior into this OSS repo.
+- OSS product behavior belongs here.
+- Hosted operations, billing, production-only admin flows, proprietary SaaS UI,
+  private deployment details, and customer data stay out of this repository.
+- The SaaS frontend is not the OSS console. The OSS UI should stay lightweight,
+  practical, and free of hosted-product hardcoding.
 
 ## Project Structure & Module Organization
-- `bin/monkeys-memory`: local CLI entrypoint.
-- `scripts/`: CLI command implementations and local memory engine.
-- `scripts/lib/`: shared compiler, retriever, sync, allowlist, and utility
-  modules.
-- `skills/`: OSS Codex and Claude Code Skills.
-- `schemas/`: JSON schema contracts for experiences and compiled memory.
-- `templates/`: local hook and capture templates.
-- `examples/`: safe public sample memory data.
-- `tests/`: Node test suite.
 
-Private runtime memory lives under `.monkeys-memory/` and should stay
+- `apps/api/`: open-source database-backed API, workers, TypeORM migrations, and
+  Dockerfile.
+- `apps/console/`: lightweight static web UI for local administration and CLI
+  authorization.
+- `compose.yaml`: one-command local deployment with PostgreSQL, Redis, API,
+  workers, and console.
+
+Private runtime memory, database volumes, secrets, and tokens must stay
 gitignored.
 
 ## Build, Test, and Install Commands
+
 Use Node.js 22+.
 
-- `npm test`: run the full Node test suite.
-- `./install.sh`: install the local OSS CLI and Skills.
-- `./install.sh --no-hooks`: install without configuring git hooks.
-- `monkeys-memory compile`: compile local experiences into memory rules.
-- `monkeys-memory retrieve`: retrieve relevant local memory for a task.
-- `monkeys-memory capture`: capture a local experience.
-- `monkeys-memory init-repo --workspace <path>`: enable a local repo.
+- `docker compose up --build`: run PostgreSQL, Redis, API, workers, and console.
+- `npm run dev:docker`: same as above through npm.
+- `npm --prefix apps/api install`: install API dependencies.
+- `npm run api:build`: compile the API.
+- `npm run api:test`: run API tests.
+- `npm test`: run the default test suite.
+- `npm run compose:config`: validate Compose configuration.
+- `cd apps/api && npm run migration:run`: apply local migrations.
 
 ## Coding Style & Constraints
-Follow the existing JavaScript module style: ESM `.mjs` files, 2-space
-indentation, small helpers, and direct local file operations. Prefer simple
-local behavior over SaaS-style abstractions.
 
-Keep this repository useful when cloned from GitHub with no hosted Monkeys
-Memory account. If a feature requires the SaaS API, it belongs in the SaaS CLI,
-server, or web repositories instead.
+Follow the style of the area being edited:
 
-## Skills Ownership
-The Skills in this repository are OSS Skills for the local open-source engine.
-They are separate from the SaaS Skills bundled by `monkeys-memory-cli/`.
+- `apps/api/`: strict TypeScript, ES modules, 2-space indentation, kebab-case
+  files, thin controllers, service logic in services/shared modules.
+- `apps/console/`: simple static HTML/CSS/JS unless a heavier frontend stack
+  becomes necessary for a real user workflow.
 
-Do not point these Skills at the SaaS API, and do not assume the SaaS CLI should
-consume these files. If a Skill concept exists in both products, update each
-repository deliberately while preserving their independence.
+Prefer the simplest deployable local path. Do not introduce SaaS-only
+dependencies when a local PostgreSQL/Redis/API/console deployment can solve the
+problem directly. If a concept exists in both OSS and the SaaS distribution,
+update the OSS implementation deliberately instead of copying hosted-only UI or
+operations code wholesale.
 
 ## Security
-Do not commit local memory data, secrets, tokens, customer data, or
-environment-specific paths. Keep examples synthetic and safe for public release.
+
+Do not commit local memory data, database dumps, secrets, tokens, customer data,
+OAuth credentials, production domain details, or environment-specific paths.
+Local Docker defaults may use development credentials only when clearly scoped
+to local quickstart flows.

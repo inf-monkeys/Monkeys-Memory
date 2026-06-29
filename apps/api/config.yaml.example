@@ -1,0 +1,38 @@
+deployment:
+  # local is the default mode for running the complete open-source product.
+  # Use production when operating outside a private local environment.
+  mode: local
+
+server:
+  port: 3000
+  host: 0.0.0.0
+
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  name: monkeys_memory
+  logging: false
+
+redis:
+  host: localhost
+  port: 6379
+  password:
+
+embeddings:
+  enabled: true
+  provider: local-hash
+  model:
+  dimensions: 64
+  apiKey:
+  baseUrl: https://api.openai.com/v1
+  timeoutMs: 10000
+  fallbackToLocal: true
+
+auth:
+  appBaseUrl: http://localhost:3000
+  webBaseUrl: http://localhost:8080
+  allowedOrigins:
+    - http://localhost:8080
+    - http://127.0.0.1:8080

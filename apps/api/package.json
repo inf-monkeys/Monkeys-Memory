@@ -1,0 +1,48 @@
+{
+  "name": "@inf-monkeys-tech/monkeys-memory-api",
+  "version": "1.0.0",
+  "description": "Monkeys Memory API for the open-source local product.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "start:prod": "node dist/main.js",
+    "start:dev": "tsx watch src/main.ts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "migration:create": "typeorm migration:create src/database/migrations/migration",
+    "migration:generate": "typeorm-ts-node-esm migration:generate src/database/migrations/migration -d src/database/ormconfig.ts",
+    "migration:run": "typeorm-ts-node-esm migration:run -d src/database/ormconfig.ts",
+    "migration:run:prod": "typeorm migration:run -d dist/database/ormconfig.js",
+    "migration:revert": "typeorm-ts-node-esm migration:revert -d src/database/ormconfig.ts",
+    "worker:compile": "tsx src/jobs/compile.worker.ts",
+    "worker:compile:prod": "node dist/jobs/compile.worker.js",
+    "worker:audit": "tsx src/jobs/audit.worker.ts",
+    "worker:audit:prod": "node dist/jobs/audit.worker.js",
+    "worker:consistency": "tsx src/jobs/consistency.worker.ts",
+    "worker:consistency:prod": "node dist/jobs/consistency.worker.js",
+    "scheduler:consistency": "tsx src/jobs/consistency.scheduler.ts",
+    "scheduler:consistency:prod": "node dist/jobs/consistency.scheduler.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/helmet": "^13.0.2",
+    "bullmq": "^5.12.0",
+    "fastify": "^5.8.5",
+    "ioredis": "^5.4.1",
+    "pg": "^8.11.3",
+    "typeorm": "^0.3.20",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pg": "^8.11.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

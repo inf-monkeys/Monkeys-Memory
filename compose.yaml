@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: monkeys_memory
+    ports:
+      - "5432:5432"
+    volumes:
+      - monkeys_memory_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d monkeys_memory"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./apps/api
+    environment:
+      NODE_ENV: production
+      MONKEYS_MEMORY_CONFIG: /etc/monkeys-memory/config.yaml
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: monkeys_memory
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SERVER_PORT: 3000
+      SERVER_HOST: 0.0.0.0
+      AUTH_APP_BASE_URL: http://localhost:3000
+      AUTH_WEB_BASE_URL: http://localhost:8080
+      AUTH_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/api/config.yaml.example:/etc/monkeys-memory/config.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  console:
+    build:
+      context: ./apps/console
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+
+volumes:
+  monkeys_memory_postgres:
