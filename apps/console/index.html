@@ -52,6 +52,31 @@
           <div class="list" id="repoList"></div>
         </section>
 
+        <section class="panel wide">
+          <div class="panel-head">
+            <div>
+              <h2>Memory effectiveness</h2>
+              <p>Deterministic score from agent memory-evaluate events. No human usefulness survey.</p>
+            </div>
+            <button type="button" id="refreshAnalyticsButton">Refresh</button>
+          </div>
+
+          <div class="effectiveness">
+            <div class="score-block">
+              <span class="score" id="effectivenessScore">0</span>
+              <span class="score-denominator">/100</span>
+              <span class="grade" id="effectivenessGrade">No signal yet</span>
+            </div>
+            <div class="metric-grid">
+              <div><span>Agent evaluations</span><strong id="effectivenessEvaluated">0</strong></div>
+              <div><span>Adoption rate</span><strong id="effectivenessAdoption">0%</strong></div>
+              <div><span>Verified success</span><strong id="effectivenessVerified">0%</strong></div>
+              <div><span>Returned item coverage</span><strong id="effectivenessCoverage">0%</strong></div>
+            </div>
+          </div>
+          <p class="muted" id="effectivenessEmpty">The score appears after agents evaluate returned memory items at the end of coding tasks.</p>
+        </section>
+
         <section class="panel">
           <div class="panel-head">
             <div>
@@ -114,7 +139,8 @@
           <pre class="command">npm install -g @inf-monkeys-tech/monkeys-memory-cli
 monkeys-memory config set api-url http://localhost:3000
 export MONKEYS_MEMORY_TOKEN=local
-monkeys-memory retrieve --repo my-repo --path src/index.ts --task feature</pre>
+monkeys-memory retrieve --repo my-repo --path src/index.ts --task feature
+monkeys-memory memory-evaluate --repo my-repo --rule-id returned_item_id --outcome helpful --adopted true --evidence "npm test passed"</pre>
         </section>
       </section>
     </main>

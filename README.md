@@ -19,6 +19,8 @@ setting up users first.
 
 - Database-backed memory capture, retrieval, review, feedback, policy, audit
   logs, and agent actions
+- Agent-reported memory effectiveness scoring from `memory-evaluate` events,
+  visible in the local console
 - Workers for compilation, audit processing, and consistency jobs
 - A small console for managing local organizations and repositories, plus quick
   capture/retrieve checks
@@ -81,6 +83,11 @@ When an agent reports a retrieved memory item as `outdated` or `failed`, the
 local API retires the old source memory from runtime retrieval. If the report
 includes a correction, Monkeys Memory captures the corrected memory and marks
 the old source as superseded.
+
+The local console shows a 0-100 memory effectiveness score computed from agent
+reports: useful outcomes, adoption, verified task success, corrections,
+evidence, and coverage across returned memory items. It does not depend on
+human usefulness surveys or user impressions.
 
 ## Project Layout
 

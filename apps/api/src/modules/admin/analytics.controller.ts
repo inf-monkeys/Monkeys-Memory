@@ -29,6 +29,15 @@ type MetricDetailRow = {
   details: string | Record<string, unknown> | null;
 };
 
+type AgentEvaluationRow = {
+  outcome: string;
+  metadata: Record<string, unknown> | string | null;
+};
+
+type RetrievalItemCountRow = {
+  returned_memory_count: string | number | null;
+};
+
 type QueryErrorLike = {
   code?: string;
   message?: string;
@@ -163,6 +172,117 @@ function semanticRelationSummary(pack: ReturnType<typeof parseRulePack>) {
   };
 }
 
+function boolValue(value: unknown): boolean {
+  return value === true;
+}
+
+function ratio(numerator: number, denominator: number): number {
+  if (denominator <= 0) return 0;
+  return Number((numerator / denominator).toFixed(2));
+}
+
+function computeAgentEffectiveness(rows: AgentEvaluationRow[], returnedMemoryCount: number) {
+  const counters = {
+    evaluated_memory_count: 0,
+    helpful_count: 0,
+    accepted_count: 0,
+    adopted_count: 0,
+    not_relevant_count: 0,
+    outdated_count: 0,
+    failed_count: 0,
+    correction_count: 0,
+    evidence_backed_count: 0,
+    task_success_count: 0,
+    verified_success_count: 0,
+  };
+
+  for (const row of rows) {
+    counters.evaluated_memory_count += 1;
+    if (row.outcome === 'helpful') counters.helpful_count += 1;
+    if (row.outcome === 'accepted') counters.accepted_count += 1;
+    if (row.outcome === 'not-relevant') counters.not_relevant_count += 1;
+    if (row.outcome === 'outdated') counters.outdated_count += 1;
+    if (row.outcome === 'failed') counters.failed_count += 1;
+
+    const metadata = parseJsonField<Record<string, unknown>>(row.metadata, {});
+    if (metadata.adopted === true) counters.adopted_count += 1;
+    if (Array.isArray(metadata.evidence) && metadata.evidence.length > 0) counters.evidence_backed_count += 1;
+    if (metadata.correction && typeof metadata.correction === 'object') counters.correction_count += 1;
+
+    const task = metadata.task && typeof metadata.task === 'object'
+      ? metadata.task as Record<string, unknown>
+      : {};
+    if (task.outcome === 'success') counters.task_success_count += 1;
+    if (
+      task.outcome === 'success'
+      && (boolValue(task.tests_passed) || boolValue(task.build_passed) || boolValue(task.lint_passed))
+    ) {
+      counters.verified_success_count += 1;
+    }
+  }
+
+  const usefulCount = counters.helpful_count + counters.accepted_count;
+  const repairableCount = counters.outdated_count + counters.failed_count;
+  const evaluated = counters.evaluated_memory_count;
+  const usefulRate = ratio(usefulCount, evaluated);
+  const adoptionRate = ratio(counters.adopted_count, evaluated);
+  const verifiedSuccessRate = ratio(counters.verified_success_count, evaluated);
+  const evidenceRate = ratio(counters.evidence_backed_count, evaluated);
+  const repairRate = ratio(counters.correction_count, repairableCount);
+  const notRelevantRate = ratio(counters.not_relevant_count, evaluated);
+  const failedRate = ratio(counters.failed_count, evaluated);
+  const evaluationCoverageRate = returnedMemoryCount > 0
+    ? Number(Math.min(1, evaluated / returnedMemoryCount).toFixed(2))
+    : evaluated > 0 ? 1 : 0;
+
+  const score = evaluated === 0
+    ? 0
+    : Math.max(0, Math.min(100, Math.round(
+      usefulRate * 35
+      + adoptionRate * 20
+      + verifiedSuccessRate * 20
+      + evidenceRate * 10
+      + repairRate * 10
+      + evaluationCoverageRate * 5
+      - failedRate * 15
+      - notRelevantRate * 10,
+    )));
+
+  const grade = evaluated === 0
+    ? 'no-signal'
+    : score >= 80 ? 'strong'
+    : score >= 60 ? 'positive'
+    : score >= 40 ? 'emerging'
+    : 'weak';
+
+  return {
+    score,
+    grade,
+    formula_version: 1,
+    data_source: 'agent_memory_evaluations',
+    returned_memory_count: returnedMemoryCount,
+    ...counters,
+    useful_rate: usefulRate,
+    adoption_rate: adoptionRate,
+    verified_success_rate: verifiedSuccessRate,
+    evidence_rate: evidenceRate,
+    repair_rate: repairRate,
+    not_relevant_rate: notRelevantRate,
+    failed_rate: failedRate,
+    evaluation_coverage_rate: evaluationCoverageRate,
+    score_components: {
+      useful_rate_weight: 35,
+      adoption_rate_weight: 20,
+      verified_success_rate_weight: 20,
+      evidence_rate_weight: 10,
+      repair_rate_weight: 10,
+      evaluation_coverage_rate_weight: 5,
+      failed_rate_penalty: 15,
+      not_relevant_rate_penalty: 10,
+    },
+  };
+}
+
 function scenarioHints(args: {
   items: CompiledRule[];
   reviewItems: ReviewQueueItem[];
@@ -237,6 +357,20 @@ export async function analyticsRoutes(app: FastifyInstance) {
         GROUP BY outcome`,
       [new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()],
     ) as Array<{ outcome: string; count: string }>;
+    const agentEvaluationRows = await AppDataSource.query(
+      `SELECT outcome, metadata
+         FROM "${req.workspace.orgId}_feedback_events"
+        WHERE created_at >= $1
+          AND metadata ->> 'source' = 'agent'`,
+      [new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()],
+    ) as AgentEvaluationRow[];
+    const retrievalItemCountRows = await AppDataSource.query(
+      `SELECT COALESCE(SUM(NULLIF(metadata ->> 'result_count', '')::int), 0) as returned_memory_count
+         FROM "${req.workspace.orgId}_audit_logs"
+        WHERE action = 'retrieve'
+          AND created_at >= $1`,
+      [new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()],
+    ) as RetrievalItemCountRow[];
     const reviewRows = await AppDataSource.query(
       `SELECT action, review_item_reason, COUNT(*) as count
          FROM "${req.workspace.orgId}_review_events"
@@ -276,6 +410,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
       acc[row.outcome] = toInt(row.count);
       return acc;
     }, {});
+    const returnedMemoryCount = toInt(retrievalItemCountRows[0]?.returned_memory_count);
+    const agentEffectiveness = computeAgentEffectiveness(agentEvaluationRows, returnedMemoryCount);
     const reviewActions = reviewRows.reduce((acc: Record<string, number>, row) => {
       acc[row.action] = (acc[row.action] ?? 0) + toInt(row.count);
       return acc;
@@ -425,6 +561,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       }, {}),
       impact: {
         feedback,
+        agent_effectiveness: agentEffectiveness,
         review_actions: reviewActions,
         review_reasons: reviewReasons,
         confirmed_or_helpful: confirmedReviews,

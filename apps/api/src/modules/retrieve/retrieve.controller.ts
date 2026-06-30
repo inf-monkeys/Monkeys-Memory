@@ -15,6 +15,7 @@ export async function retrieveRoutes(app: FastifyInstance) {
     const result = await retrieveService.retrieve(req.workspace.orgId, retrieveRequest);
     const agentActions = await agentActionsService.maybeLeaseActions(req.workspace.orgId, body.repo, req.workspace.userId, body.agent_capabilities);
     const latency = Date.now() - start;
+    const resultCount = result.rules.length + result.exceptions.length + result.org_rules.length;
 
     // Async audit
     getAuditQueue().add('audit', {
@@ -24,7 +25,7 @@ export async function retrieveRoutes(app: FastifyInstance) {
         action: 'retrieve',
         resource_type: 'repo',
         resource_id: body.repo,
-        metadata: { path: body.path, task: body.task, branch: body.branch, tag: body.tag, commit: body.commit, user_id: retrieveRequest.user_id, team_id: body.team_id, template_id: body.template_id, include_sensitive: body.include_sensitive, result_count: result.rules.length, latency_ms: latency },
+        metadata: { path: body.path, task: body.task, branch: body.branch, tag: body.tag, commit: body.commit, user_id: retrieveRequest.user_id, team_id: body.team_id, template_id: body.template_id, include_sensitive: body.include_sensitive, result_count: resultCount, latency_ms: latency },
         ip_address: req.ip,
       },
     }).catch(() => {});

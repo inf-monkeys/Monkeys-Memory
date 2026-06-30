@@ -68,6 +68,33 @@ function renderRepos(repos) {
   }
 }
 
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '0%';
+  return `${Math.round(number * 100)}%`;
+}
+
+function gradeLabel(grade) {
+  return ({
+    strong: 'Strong signal',
+    positive: 'Positive signal',
+    emerging: 'Emerging signal',
+    weak: 'Weak signal',
+    'no-signal': 'No signal yet',
+  })[grade] || grade || 'No signal yet';
+}
+
+function renderEffectiveness(effectiveness = {}) {
+  const evaluated = Number(effectiveness.evaluated_memory_count || 0);
+  $('effectivenessScore').textContent = String(effectiveness.score || 0);
+  $('effectivenessGrade').textContent = gradeLabel(effectiveness.grade);
+  $('effectivenessEvaluated').textContent = String(evaluated);
+  $('effectivenessAdoption').textContent = formatPercent(effectiveness.adoption_rate);
+  $('effectivenessVerified').textContent = formatPercent(effectiveness.verified_success_rate);
+  $('effectivenessCoverage').textContent = formatPercent(effectiveness.evaluation_coverage_rate);
+  $('effectivenessEmpty').classList.toggle('hidden', evaluated > 0);
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({
     '&': '&amp;',
@@ -83,6 +110,7 @@ async function refreshOrgs() {
   state.orgs = data.organizations || [];
   renderOrgs();
   await refreshRepos().catch(() => {});
+  await refreshAnalytics().catch(() => {});
   return data;
 }
 
@@ -93,6 +121,15 @@ async function refreshRepos() {
   }
   const data = await api('/repos');
   renderRepos(data.repos || []);
+}
+
+async function refreshAnalytics() {
+  if (!state.orgId) {
+    renderEffectiveness();
+    return;
+  }
+  const data = await api('/analytics/overview');
+  renderEffectiveness(data.impact?.agent_effectiveness || {});
 }
 
 async function checkHealth() {
@@ -126,6 +163,7 @@ $('orgSelect').addEventListener('change', async (event) => {
   state.orgId = event.target.value;
   localStorage.setItem('mm_org_id', state.orgId);
   await refreshRepos();
+  await refreshAnalytics().catch(() => {});
 });
 
 $('repoForm').addEventListener('submit', async (event) => {
@@ -138,6 +176,7 @@ $('repoForm').addEventListener('submit', async (event) => {
     $('captureRepoInput').value = name;
     $('retrieveRepoInput').value = name;
     await refreshRepos();
+    await refreshAnalytics().catch(() => {});
     toast('Repository added');
   } catch (error) {
     toast(error.message, 'error');
@@ -159,6 +198,7 @@ $('captureForm').addEventListener('submit', async (event) => {
   try {
     await api('/capture', { method: 'POST', body: JSON.stringify(body) });
     await refreshRepos();
+    await refreshAnalytics().catch(() => {});
     $('retrieveRepoInput').value = repo;
     toast('Memory captured');
   } catch (error) {
@@ -177,6 +217,16 @@ $('retrieveForm').addEventListener('submit', async (event) => {
   try {
     const data = await api('/retrieve', { method: 'POST', body: JSON.stringify(body) });
     $('retrieveOutput').textContent = JSON.stringify(data, null, 2);
+    await refreshAnalytics().catch(() => {});
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+});
+
+$('refreshAnalyticsButton').addEventListener('click', async () => {
+  try {
+    await refreshAnalytics();
+    toast('Effectiveness refreshed');
   } catch (error) {
     toast(error.message, 'error');
   }

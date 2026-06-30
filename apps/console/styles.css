@@ -202,6 +202,71 @@ h2 {
   margin-top: 3px;
 }
 
+.effectiveness {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.score-block {
+  display: grid;
+  align-content: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fafbfc;
+  padding: 14px;
+}
+
+.score {
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.score-denominator {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.grade {
+  margin-top: 8px;
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-grid div {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fafbfc;
+  padding: 12px;
+}
+
+.metric-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metric-grid strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 22px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .output,
 .command {
   overflow: auto;
@@ -259,6 +324,11 @@ h2 {
 
   .inline-form,
   .retrieve-form {
+    grid-template-columns: 1fr;
+  }
+
+  .effectiveness,
+  .metric-grid {
     grid-template-columns: 1fr;
   }
 }

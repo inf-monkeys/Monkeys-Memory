@@ -16,6 +16,7 @@ Monkeys Memory 给 coding agent 一层项目记忆。
 ## 包含什么
 
 - 数据库驱动的记忆捕获、检索、审查、反馈、策略、审计日志和 agent actions
+- 基于 `memory-evaluate` 事件的 agent 上报记忆有效性分数，并在本地控制台展示
 - 用于编译、审计处理和一致性任务的后台 workers
 - 一个小控制台，用来管理本地组织和仓库，也可以快速试捕获和检索
 - 默认使用确定性的本地 embeddings，也可以通过配置接入外部 embedding 服务
@@ -73,6 +74,10 @@ local 模式下，API 会把请求归到本地 owner workspace。这里不需要
 当 agent 把某条检索到的记忆标记为 `outdated` 或 `failed` 时，本地 API 会把
 旧的 source memory 从运行时检索中退役。如果这次反馈里带了修正版，Monkeys
 Memory 会捕获新的修正记忆，并把旧 source 标记为已被替代。
+
+本地控制台会展示 0-100 的记忆有效性分数。这个分数来自 agent 上报的有效结果、
+采纳、通过测试/构建/检查的任务成功、纠错、证据和返回经验覆盖率；不依赖人工
+主观有效性问卷，也不是用户感觉。
 
 ## 项目结构
 
