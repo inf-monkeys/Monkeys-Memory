@@ -60,6 +60,23 @@ function wrongRepoScopeReason(kind: string | null | undefined, scopePath: string
 export function explainRule(rule: CompiledRule, targetPath: string | null, taskType: string | null, options: { orgLevel?: boolean; queryEmbedding?: number[]; vectorSimilarity?: number; repoContext?: RepoScanContext } = {}): { score: number; explanation: RetrievalExplanation } {
   const why: string[] = [];
   const risks: string[] = [];
+  if (['deprecated', 'superseded', 'stale'].includes(rule.lifecycle?.state ?? '')) {
+    return {
+      score: 0,
+      explanation: {
+        why: [`lifecycle state is ${rule.lifecycle?.state}`],
+        risks: ['memory is retired from runtime retrieval'],
+        matched_scope: { paths: [], task: null },
+        matched_evidence: rule.provenance?.evidence_refs ?? [],
+        relationship: {
+          supports: rule.relationships?.supports ?? rule.sources ?? [],
+          contradicts: rule.conflicts_with ?? rule.relationships?.contradicts ?? [],
+          supersedes: rule.relationships?.supersedes ?? [],
+          superseded_by: rule.relationships?.superseded_by ?? [],
+        },
+      },
+    };
+  }
   let score = rule.confidence_score * 100;
   why.push(`confidence ${rule.confidence_score}`);
 

@@ -432,6 +432,16 @@ export interface AgentMemoryEvaluationRequest {
     confidence?: number | null;
     note?: string | null;
     evidence?: string[];
+    correction?: {
+      title?: string;
+      claim: string;
+      kind?: MemoryKind;
+      scope?: Partial<ExperienceScope>;
+      evidence?: EvidenceItem[];
+      confidence?: number | null;
+      policy?: MemoryPolicy;
+      validity?: MemoryValidity;
+    };
   }>;
 }
 

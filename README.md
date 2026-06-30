@@ -71,10 +71,16 @@ monkeys-memory config set api-url http://localhost:3000
 export MONKEYS_MEMORY_TOKEN=local
 monkeys-memory retrieve --repo my-repo --path src/index.ts --task feature
 monkeys-memory capture --repo my-repo --title "Adapter rule" --claim "Always validate through the adapter." --path "src/adapter/**" --task feature
+monkeys-memory memory-evaluate --repo my-repo --rule-id rule_1 --outcome outdated --adopted false --correct-claim "Use the new adapter boundary." --correct-path "src/adapter/**"
 ```
 
 In local mode, API requests are mapped to the local owner workspace. You do not
 need a browser setup flow or a cloud token.
+
+When an agent reports a retrieved memory item as `outdated` or `failed`, the
+local API retires the old source memory from runtime retrieval. If the report
+includes a correction, Monkeys Memory captures the corrected memory and marks
+the old source as superseded.
 
 ## Project Layout
 

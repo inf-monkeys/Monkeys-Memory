@@ -467,14 +467,23 @@ function applyFeedback(experiences: Experience[], feedbackRows: FeedbackRow[]) {
         exp.confidence = clamp(exp.confidence + 0.08, 0, 1);
         exp.lifecycle = { ...(exp.lifecycle ?? {}), state: 'confirmed', reason: `feedback:${row.outcome}`, updated_at: row.created_at };
       } else if (row.outcome === 'outdated') {
-        exp.confidence = clamp(exp.confidence - 0.15, 0, 1);
-        exp.lifecycle = { ...(exp.lifecycle ?? {}), state: 'stale', reason: 'feedback:outdated', updated_at: row.created_at };
+        exp.confidence = clamp(exp.confidence - 0.3, 0, 1);
+        exp.lifecycle = { ...(exp.lifecycle ?? {}), state: 'deprecated', reason: 'feedback:outdated', updated_at: row.created_at };
+      } else if (row.outcome === 'failed') {
+        exp.confidence = clamp(exp.confidence - 0.35, 0, 1);
+        exp.lifecycle = { ...(exp.lifecycle ?? {}), state: 'deprecated', reason: 'feedback:failed', updated_at: row.created_at };
+      } else if (row.outcome === 'not-relevant') {
+        exp.confidence = clamp(exp.confidence - 0.08, 0, 1);
       } else {
         exp.confidence = clamp(exp.confidence - 0.18, 0, 1);
         exp.lifecycle = { ...(exp.lifecycle ?? {}), state: 'contested', reason: `feedback:${row.outcome}`, updated_at: row.created_at };
       }
     }
   }
+}
+
+function isRuntimeExperience(exp: Experience): boolean {
+  return !['deprecated', 'superseded', 'stale'].includes(exp.lifecycle?.state ?? '');
 }
 
 function buildOnboarding(rulePack: RulePack, config: CompileConfig): string {
@@ -527,13 +536,14 @@ export class CompilerService {
       [repoId],
     ) as FeedbackRow[];
     applyFeedback(experiences, feedbackRows);
+    const runtimeExperiences = experiences.filter(isRuntimeExperience);
 
     // Apply decay
-    for (const exp of experiences) applyConfidenceDecay(exp, config);
+    for (const exp of runtimeExperiences) applyConfidenceDecay(exp, config);
 
     // Group
     const grouped = new Map<string, Experience[]>();
-    for (const exp of experiences) {
+    for (const exp of runtimeExperiences) {
       const key = makeGroupKey(exp);
       const bucket = grouped.get(key) ?? [];
       bucket.push(exp);
@@ -555,7 +565,7 @@ export class CompilerService {
       repo_id: repoId,
       repo_name: repoName,
       generated_at: now,
-      source_experience_count: experiences.length,
+      source_experience_count: runtimeExperiences.length,
       rules: allRules.sort(sortRules),
       exceptions: items.filter(i => i.kind === 'exception').sort(sortRules),
       procedures: items.filter(i => i.kind === 'procedure').sort(sortRules),
@@ -597,18 +607,18 @@ export class CompilerService {
         JSON.stringify(pathIndex),
         onboarding,
         nextVersion,
-        experiences.length,
+        runtimeExperiences.length,
       ],
     );
 
     // Update repo metadata
     await AppDataSource.query(
       `UPDATE "${orgId}_repos" SET last_compiled_at = NOW(), compile_version = $1, experience_count = $2, updated_at = NOW() WHERE id = $3`,
-      [nextVersion, experiences.length, repoId],
+      [nextVersion, runtimeExperiences.length, repoId],
     );
 
     logger.info('Compiled repo', { orgId, repoId, repoName, rules: allRules.length, exceptions: rulePack.exceptions.length });
-    await this.recordCompileMetrics(orgId, repoId, experiences, repos[0].last_compiled_at, startedAt);
+    await this.recordCompileMetrics(orgId, repoId, runtimeExperiences, repos[0].last_compiled_at, startedAt);
     return { ruleCount: allRules.length, exceptionCount: rulePack.exceptions.length };
   }
 

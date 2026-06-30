@@ -64,10 +64,15 @@ monkeys-memory config set api-url http://localhost:3000
 export MONKEYS_MEMORY_TOKEN=local
 monkeys-memory retrieve --repo my-repo --path src/index.ts --task feature
 monkeys-memory capture --repo my-repo --title "Adapter rule" --claim "Always validate through the adapter." --path "src/adapter/**" --task feature
+monkeys-memory memory-evaluate --repo my-repo --rule-id rule_1 --outcome outdated --adopted false --correct-claim "Use the new adapter boundary." --correct-path "src/adapter/**"
 ```
 
 local 模式下，API 会把请求归到本地 owner workspace。这里不需要浏览器设置
 流程，也不需要云端 token。
+
+当 agent 把某条检索到的记忆标记为 `outdated` 或 `failed` 时，本地 API 会把
+旧的 source memory 从运行时检索中退役。如果这次反馈里带了修正版，Monkeys
+Memory 会捕获新的修正记忆，并把旧 source 标记为已被替代。
 
 ## 项目结构
 
