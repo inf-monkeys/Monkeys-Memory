@@ -18,6 +18,25 @@ redis:
   port: 6379
   password:
 
+embeddings:
+  enabled: true
+  provider: auto
+  model: text-embedding-3-small
+  dimensions: 1536
+  apiKey:
+  baseUrl: https://api.openai.com/v1
+  timeoutMs: 10000
+  fallbackToLocal: true
+
+vectorStore:
+  enabled: true
+  provider: qdrant
+  url: http://localhost:6333
+  apiKey:
+  collectionPrefix: monkeys_memory_items
+  timeoutMs: 10000
+  searchLimit: 80
+
 console:
   baseUrl: http://localhost:8080
 

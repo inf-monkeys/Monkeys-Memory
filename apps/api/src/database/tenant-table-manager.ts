@@ -8,6 +8,7 @@ export class TenantTableManager {
     await this.createReposTable();
     await this.createExperiencesTable();
     await this.createCompiledRulesTable();
+    await this.createVectorIndexesTable();
     await this.createFeedbackEventsTable();
     await this.createReviewEventsTable();
     await this.createTrajectoryEventsTable();
@@ -171,6 +172,32 @@ export class TenantTableManager {
     await this.queryRunner.createIndex(t, new TableIndex({ name: `idx_${t}_repo_ver`, columnNames: ['repo_id', 'version'] }));
   }
 
+  private async createVectorIndexesTable() {
+    const t = this.getTableName('vector_indexes');
+    await this.queryRunner.createTable(new Table({
+      name: t,
+      columns: [
+        { name: 'id', type: 'uuid', isPrimary: true, generationStrategy: 'uuid', default: 'gen_random_uuid()' },
+        { name: 'repo_id', type: 'uuid', isNullable: true },
+        { name: 'compiled_rule_id', type: 'uuid', isNullable: false },
+        { name: 'compiled_version', type: 'int' },
+        { name: 'provider', type: 'varchar', length: '64' },
+        { name: 'collection', type: 'varchar', length: '255' },
+        { name: 'embedding_provider', type: 'varchar', length: '64' },
+        { name: 'embedding_model', type: 'varchar', length: '128' },
+        { name: 'embedding_dimensions', type: 'int' },
+        { name: 'point_count', type: 'int', default: 0 },
+        { name: 'status', type: 'varchar', length: '32', default: "'ready'" },
+        { name: 'error', type: 'text', isNullable: true },
+        { name: 'created_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
+        { name: 'updated_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
+      ],
+    }), true);
+    await this.queryRunner.createIndex(t, new TableIndex({ name: `idx_${t}_repo_version`, columnNames: ['repo_id', 'compiled_version'] }));
+    await this.queryRunner.createIndex(t, new TableIndex({ name: `idx_${t}_compiled_rule`, columnNames: ['compiled_rule_id'] }));
+    await this.queryRunner.createIndex(t, new TableIndex({ name: `idx_${t}_status`, columnNames: ['status'] }));
+  }
+
   private async createAgentActionsTable() {
     const t = this.getTableName('agent_actions');
     await this.queryRunner.createTable(new Table({
@@ -232,7 +259,7 @@ export class TenantTableManager {
   }
 
   async dropAllTables() {
-    const tables = ['usage_metrics', 'audit_logs', 'agent_actions', 'trajectory_events', 'review_events', 'feedback_events', 'compiled_rules', 'experiences', 'repos', 'users'];
+    const tables = ['usage_metrics', 'audit_logs', 'agent_actions', 'trajectory_events', 'review_events', 'feedback_events', 'vector_indexes', 'compiled_rules', 'experiences', 'repos', 'users'];
     for (const base of tables) {
       await this.queryRunner.dropTable(this.getTableName(base), true);
     }

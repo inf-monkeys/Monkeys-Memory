@@ -22,13 +22,28 @@ redis:
 
 embeddings:
   enabled: true
-  provider: local-hash
-  model:
-  dimensions: 64
+  # auto uses OpenAI-compatible embeddings when apiKey is set, otherwise falls
+  # back to deterministic local-hash embeddings.
+  provider: auto
+  model: text-embedding-3-small
+  dimensions: 1536
   apiKey:
   baseUrl: https://api.openai.com/v1
   timeoutMs: 10000
+  # Applies when provider is openai-compatible but apiKey is missing. Request
+  # failures fail closed so Qdrant collections never mix embedding models.
   fallbackToLocal: true
+
+vectorStore:
+  enabled: true
+  provider: qdrant
+  # Docker Compose overrides this to http://qdrant:6333. Set VECTOR_STORE_URL
+  # for an external or managed Qdrant deployment.
+  url: http://localhost:6333
+  apiKey:
+  collectionPrefix: monkeys_memory_items
+  timeoutMs: 10000
+  searchLimit: 80
 
 console:
   baseUrl: http://localhost:8080

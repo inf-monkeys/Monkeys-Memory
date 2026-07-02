@@ -11,6 +11,7 @@ import { AddReviewEventMetadata1711000000021 } from './migrations/1711000000021-
 import { AddAgentActions1711000000022 } from './migrations/1711000000022-AddAgentActions.js';
 import { AddFeedbackEventMetadata1711000000024 } from './migrations/1711000000024-AddFeedbackEventMetadata.js';
 import { RepairAgentActionsSchema1711000000025 } from './migrations/1711000000025-RepairAgentActionsSchema.js';
+import { AddVectorIndexes1711000000026 } from './migrations/1711000000026-AddVectorIndexes.js';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -33,6 +34,7 @@ export const AppDataSource = new DataSource({
     AddAgentActions1711000000022,
     AddFeedbackEventMetadata1711000000024,
     RepairAgentActionsSchema1711000000025,
+    AddVectorIndexes1711000000026,
   ],
   migrationsTableName: 'migrations',
 });

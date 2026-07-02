@@ -1,4 +1,6 @@
-const DEFAULT_DIMENSIONS = 64;
+const DEFAULT_LOCAL_DIMENSIONS = 64;
+const DEFAULT_OPENAI_DIMENSIONS = 1536;
+const DEFAULT_OPENAI_MODEL = 'text-embedding-3-small';
 
 export type EmbeddingConfig = {
   enabled?: boolean;
@@ -38,7 +40,7 @@ function hashToken(token: string, dimensions: number): number {
   return Math.abs(hash) % dimensions;
 }
 
-export function embedText(text: string, dimensions = DEFAULT_DIMENSIONS): number[] {
+export function embedText(text: string, dimensions = DEFAULT_LOCAL_DIMENSIONS): number[] {
   const vector = Array(dimensions).fill(0);
   for (const token of tokenize(text)) {
     vector[hashToken(token, dimensions)] += 1;
@@ -54,38 +56,49 @@ function normalizeBaseUrl(value: unknown): string {
   return raw.replace(/\/+$/, '');
 }
 
-function normalizeDimensions(value: unknown): number {
-  const dimensions = Number(value ?? DEFAULT_DIMENSIONS);
-  if (!Number.isFinite(dimensions) || dimensions < 8) return DEFAULT_DIMENSIONS;
+function normalizeDimensions(value: unknown, fallback: number): number {
+  const dimensions = Number(value ?? fallback);
+  if (!Number.isFinite(dimensions) || dimensions < 8) return fallback;
   return Math.min(4096, Math.floor(dimensions));
+}
+
+function buildLocalAdapter(dimensions = DEFAULT_LOCAL_DIMENSIONS, model?: string): EmbeddingAdapter {
+  const normalizedDimensions = normalizeDimensions(dimensions, DEFAULT_LOCAL_DIMENSIONS);
+  return {
+    provider: 'local-hash',
+    model: model ?? `local-hash-${normalizedDimensions}`,
+    dimensions: normalizedDimensions,
+    embed: async (text: string) => embedText(text, normalizedDimensions),
+  };
 }
 
 export function buildEmbeddingAdapter(config: EmbeddingConfig = {}): EmbeddingAdapter | null {
   if (config.enabled === false) return null;
-  const provider = config.provider ?? 'local-hash';
-  const dimensions = normalizeDimensions(config.dimensions);
-  const model = config.model ?? `${provider}-${dimensions}`;
-  const localEmbed = (text: string) => embedText(text, dimensions);
-  if (provider === 'local-hash') {
-    return {
-      provider,
-      model,
-      dimensions,
-      embed: async (text: string) => localEmbed(text),
-    };
+  const provider = config.provider ?? 'auto';
+  const apiKey = config.apiKey;
+  if (provider === 'auto' && !apiKey) {
+    return buildLocalAdapter(config.dimensions);
   }
-  if (provider === 'openai-compatible') {
-    const apiKey = config.apiKey;
+  const shouldUseOpenAi = provider === 'auto'
+    ? Boolean(apiKey)
+    : provider === 'openai-compatible' || provider === 'openai';
+
+  if (provider === 'local-hash') {
+    return buildLocalAdapter(config.dimensions, config.model);
+  }
+
+  if (shouldUseOpenAi) {
+    const dimensions = normalizeDimensions(config.dimensions, DEFAULT_OPENAI_DIMENSIONS);
+    const model = config.model ?? DEFAULT_OPENAI_MODEL;
     const baseUrl = normalizeBaseUrl(config.baseUrl);
     const timeoutMs = Math.max(100, Math.min(Number(config.timeoutMs ?? 10_000), 60_000));
-    const fallbackToLocal = config.fallbackToLocal !== false;
+    if (!apiKey && config.fallbackToLocal !== false) return buildLocalAdapter(dimensions, `local-hash-${dimensions}`);
     return {
-      provider,
+      provider: 'openai-compatible',
       model,
       dimensions,
       embed: async (text: string) => {
         if (!apiKey) {
-          if (fallbackToLocal) return localEmbed(text);
           throw new Error('embeddings.apiKey is required for openai-compatible provider');
         }
         const controller = new AbortController();
@@ -106,7 +119,6 @@ export function buildEmbeddingAdapter(config: EmbeddingConfig = {}): EmbeddingAd
           if (!Array.isArray(embedding) || embedding.length === 0) throw new Error('embedding response missing data[0].embedding');
           return embedding.map(value => Number(value) || 0);
         } catch (error) {
-          if (fallbackToLocal) return localEmbed(text);
           throw error;
         } finally {
           clearTimeout(timeout);
@@ -114,12 +126,8 @@ export function buildEmbeddingAdapter(config: EmbeddingConfig = {}): EmbeddingAd
       },
     };
   }
-  return {
-    provider,
-    model,
-    dimensions,
-    embed: async (text: string) => localEmbed(text),
-  };
+
+  return buildLocalAdapter(config.dimensions, config.model);
 }
 
 export function cosineSimilarity(left?: number[], right?: number[]): number {
@@ -137,4 +145,4 @@ export function cosineSimilarity(left?: number[], right?: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-export const LOCAL_EMBEDDING_MODEL = `local-hash-${DEFAULT_DIMENSIONS}`;
+export const LOCAL_EMBEDDING_MODEL = `local-hash-${DEFAULT_LOCAL_DIMENSIONS}`;

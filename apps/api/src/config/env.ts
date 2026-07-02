@@ -39,6 +39,12 @@ const allowedOrigins = resolveAllowedOrigins(
   readConfig<string | string[] | undefined>('cors.allowedOrigins', undefined),
 );
 
+function optionalNumber(value: unknown): number | undefined {
+  if (value == null || value === '') return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
 export const env = {
   deployment: {
     mode: readConfig<'local' | 'production'>('deployment.mode', 'local'),
@@ -74,13 +80,23 @@ export const env = {
 
   embeddings: {
     enabled: String(readConfig('embeddings.enabled', true)) === 'true',
-    provider: readConfig('embeddings.provider', 'local-hash'),
-    model: readConfig<string | undefined>('embeddings.model', undefined),
-    dimensions: Number(readConfig('embeddings.dimensions', 64)),
-    apiKey: readConfig<string | undefined>('embeddings.apiKey', undefined),
-    baseUrl: readConfig<string | undefined>('embeddings.baseUrl', undefined),
+    provider: readConfig('embeddings.provider', 'auto'),
+    model: readConfig<string | undefined>('embeddings.model', process.env.OPENAI_EMBEDDING_MODEL),
+    dimensions: optionalNumber(readConfig('embeddings.dimensions', undefined)),
+    apiKey: readConfig<string | undefined>('embeddings.apiKey', process.env.OPENAI_API_KEY),
+    baseUrl: readConfig<string | undefined>('embeddings.baseUrl', process.env.OPENAI_BASE_URL),
     timeoutMs: Number(readConfig('embeddings.timeoutMs', 10_000)),
     fallbackToLocal: String(readConfig('embeddings.fallbackToLocal', true)) === 'true',
+  },
+
+  vectorStore: {
+    enabled: String(readConfig('vectorStore.enabled', true)) === 'true',
+    provider: readConfig('vectorStore.provider', 'qdrant'),
+    url: readConfig('vectorStore.url', 'http://localhost:6333'),
+    apiKey: readConfig<string | undefined>('vectorStore.apiKey', undefined),
+    collectionPrefix: readConfig('vectorStore.collectionPrefix', 'monkeys_memory_items'),
+    timeoutMs: Number(readConfig('vectorStore.timeoutMs', 10_000)),
+    searchLimit: Number(readConfig('vectorStore.searchLimit', 80)),
   },
 
   cors: {

@@ -2,10 +2,10 @@ import { AppDataSource } from '../../database/ormconfig.js';
 import { env } from '../../config/env.js';
 import { embedRetrieveQuery, explainRule, sortByScore, type RepoScanContext } from './scorer.js';
 import { cosineSimilarity } from './embedding.js';
-import { normalizeTaskType } from '../../shared/utils.js';
 import { evaluateMemoryPolicy } from '../policy/policy-engine.js';
 import type { CompiledRule, MemoryPolicy, RetrieveRequest, RulePack } from '../../shared/types.js';
 import { logger } from '../../shared/logger.js';
+import { memoryVectorStore } from '../vector-store/qdrant-store.js';
 
 interface ScoredRule extends CompiledRule {
   runtime_score: number;
@@ -95,7 +95,7 @@ export class RetrieveService {
 
     // Load latest compiled rules
     const compiled = await AppDataSource.query(
-      `SELECT content FROM "${orgId}_compiled_rules" WHERE repo_id = $1 AND rule_type = 'repo' AND is_deleted = false ORDER BY version DESC LIMIT 1`,
+      `SELECT id, content, version FROM "${orgId}_compiled_rules" WHERE repo_id = $1 AND rule_type = 'repo' AND is_deleted = false ORDER BY version DESC LIMIT 1`,
       [repoId],
     );
 
@@ -107,11 +107,7 @@ export class RetrieveService {
       ? JSON.parse(compiled[0].content)
       : compiled[0].content;
     const queryEmbedding = await embedRetrieveQuery(req.repo, req.path, req.task, env.embeddings);
-    const vectorSimilarityById = new Map<string, number>();
-    for (const item of pack.vector_index?.items ?? []) {
-      const similarity = cosineSimilarity(queryEmbedding, item.embedding);
-      if (similarity > 0) vectorSimilarityById.set(item.id, similarity);
-    }
+    const vectorSimilarityById = await this.loadVectorSimilarity(orgId, repoId, compiled[0].id, Number(compiled[0].version), pack, queryEmbedding);
 
     const hierarchy = emptyHierarchy();
 
@@ -163,6 +159,54 @@ export class RetrieveService {
       org_rules: orgRules,
       hierarchy,
     };
+  }
+
+  private async loadVectorSimilarity(
+    orgId: string,
+    repoId: string,
+    compiledRuleId: string,
+    compiledVersion: number,
+    pack: RulePack,
+    queryEmbedding: number[],
+  ): Promise<Map<string, number>> {
+    const similarities = new Map<string, number>();
+    const readyRows = await AppDataSource.query(
+      `SELECT compiled_rule_id, compiled_version, embedding_model, embedding_dimensions
+         FROM "${orgId}_vector_indexes"
+        WHERE repo_id = $1
+          AND compiled_rule_id = $2
+          AND status = 'ready'
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [repoId, compiledRuleId],
+    ) as Array<{ compiled_rule_id: string; compiled_version: number; embedding_model: string; embedding_dimensions: number }>;
+
+    const ready = readyRows[0];
+    if (ready && queryEmbedding.length > 0) {
+      try {
+        const results = await memoryVectorStore.search({
+          orgId,
+          repoId,
+          compiledRuleId: ready.compiled_rule_id,
+          compiledVersion: Number(ready.compiled_version),
+          embeddingModel: ready.embedding_model,
+          embeddingDimensions: Number(ready.embedding_dimensions),
+          vector: queryEmbedding,
+          limit: env.vectorStore.searchLimit,
+        });
+        for (const result of results) similarities.set(result.itemId, result.score);
+        return similarities;
+      } catch (error) {
+        logger.warn('Qdrant vector search failed; falling back to compiled JSON vectors when available', { orgId, repoId, error: (error as Error).message });
+      }
+    }
+
+    for (const item of pack.vector_index?.items ?? []) {
+      if (!item.embedding) continue;
+      const similarity = cosineSimilarity(queryEmbedding, item.embedding);
+      if (similarity > 0) similarities.set(item.id, similarity);
+    }
+    return similarities;
   }
 }
 

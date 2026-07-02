@@ -11,9 +11,9 @@ something about a codebase, the next agent session should not have to learn it
 from scratch.
 
 This repository contains the complete open-source product: a Fastify API,
-background workers, PostgreSQL, Redis, a small web console, and Docker Compose.
-It starts with a local owner workspace, so you can try the full flow without
-setting up users first.
+background workers, PostgreSQL, Redis, Qdrant, a small web console, and Docker
+Compose. It starts with a local owner workspace, so you can try the full flow
+without setting up users first.
 
 ## What's Included
 
@@ -24,10 +24,12 @@ setting up users first.
 - Workers for compilation, audit processing, and consistency jobs
 - A small console for managing local organizations and repositories, plus quick
   capture/retrieve checks
-- Deterministic local embeddings by default, with external embedding providers
-  available through configuration
-- One-command Docker Compose setup for PostgreSQL, Redis, API, workers, and
-  console
+- Productized vector retrieval with Qdrant as the vector index and PostgreSQL as
+  the canonical content store
+- OpenAI-compatible embeddings when configured, with deterministic local hash
+  embeddings as the fallback
+- One-command Docker Compose setup for PostgreSQL, Redis, Qdrant, API, workers,
+  and console
 - A CLI-compatible API for the open-source `monkeys-memory` command
 
 ## Quickstart
@@ -102,6 +104,7 @@ Services started by Compose:
 
 - `postgres`: PostgreSQL 16
 - `redis`: Redis 7
+- `qdrant`: vector index for compiled memory embeddings
 - `api`: Monkeys Memory API, migrations, compile worker, audit worker
 - `console`: static console plus same-origin proxy to `/api` and `/health`
 
@@ -117,13 +120,27 @@ The Compose file mounts this example as `/etc/monkeys-memory/config.yaml` and
 overrides Docker connection values with environment variables.
 
 For a real deployment, copy the example to your own config file and adjust
-database, Redis, CORS, and embedding settings for your environment.
+database, Redis, Qdrant, CORS, and embedding settings for your environment.
 
 Defaults worth knowing:
 
 - `deployment.mode: local`
-- `embeddings.provider: local-hash`
+- `embeddings.provider: auto`
+- `vectorStore.provider: qdrant`
 - `database.name: monkeys_memory`
+
+By default, Compose starts a local Qdrant instance and points the API at
+`http://qdrant:6333`. To use an external or managed Qdrant deployment instead,
+set:
+
+```bash
+VECTOR_STORE_URL=https://your-qdrant.example
+VECTOR_STORE_API_KEY=your-qdrant-api-key
+```
+
+Embeddings use the OpenAI-compatible API when `EMBEDDINGS_API_KEY` or
+`OPENAI_API_KEY` is configured. Without a key, the API falls back to the local
+hash embedder so the open-source product still works offline.
 
 Use HTTPS, private network controls, and non-default database credentials before
 exposing a deployment beyond localhost.

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { AppDataSource } from '../../database/ormconfig.js';
 import { env } from '../../config/env.js';
 import { clamp, confidenceBucket, uniqueSorted, maxIsoDate, slugify, normalizeText, normalizeTaskType } from '../../shared/utils.js';
@@ -7,6 +8,7 @@ import { applyConfidenceDecay } from './decay.js';
 import { logger } from '../../shared/logger.js';
 import { buildSemanticRelations } from './semantic.js';
 import { buildEmbeddingAdapter } from '../retrieve/embedding.js';
+import { memoryVectorStore, type MemoryVectorRecord } from '../vector-store/qdrant-store.js';
 import type { EntityDefinition, Experience, CompiledRule, CompileConfig, MemoryCompilerPluginConfig, MemoryQuality, RulePack, VectorIndex } from '../../shared/types.js';
 
 type FeedbackRow = {
@@ -352,25 +354,62 @@ function buildReviewQueue(rulePack: RulePack) {
   return { version: 1, org_id: rulePack.org_id, repo_name: rulePack.repo_name, generated_at: rulePack.generated_at, items };
 }
 
-async function attachEmbeddings(rulePack: RulePack): Promise<VectorIndex | null> {
+function vectorContentHash(item: CompiledRule): string {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    id: item.id,
+    kind: item.kind,
+    claim: item.claim,
+    scope: item.scope,
+    policy: item.policy,
+    validity: item.validity,
+    updated_at: item.updated_at,
+  })).digest('hex');
+}
+
+async function buildVectorIndex(rulePack: RulePack): Promise<{ index: VectorIndex; records: MemoryVectorRecord[] } | null> {
   const adapter = buildEmbeddingAdapter(env.embeddings);
   if (!adapter) return null;
   const items = allPackItems(rulePack);
+  const records: MemoryVectorRecord[] = [];
   for (const item of items) {
     item.embedding_model = adapter.model;
-    item.embedding = await adapter.embed([item.claim, item.scope.paths.join(' '), item.scope.entities?.join(' ') ?? ''].join(' '));
+    const embedding = await adapter.embed([item.claim, item.scope.paths.join(' '), item.scope.entities?.join(' ') ?? ''].join(' '));
+    records.push({
+      orgId: rulePack.org_id,
+      repoId: rulePack.repo_id,
+      compiledRuleId: '',
+      compiledVersion: 0,
+      itemId: item.id,
+      itemKind: item.kind,
+      embeddingProvider: adapter.provider,
+      embeddingModel: adapter.model,
+      embeddingDimensions: adapter.dimensions,
+      embedding,
+      contentHash: vectorContentHash(item),
+      claim: item.claim,
+      paths: item.scope.paths,
+      taskTypes: item.scope.task_types,
+      entities: item.scope.entities ?? [],
+      policy: item.policy,
+      validity: item.validity,
+      generatedAt: rulePack.generated_at,
+    });
   }
   return {
-    version: 1,
-    provider: adapter.provider,
-    dimensions: adapter.dimensions,
-    items: items.map(item => ({
-      id: item.id,
-      kind: item.kind,
-      claim: item.claim,
-      embedding_model: item.embedding_model,
-      embedding: item.embedding ?? [],
-    })),
+    index: {
+      version: 2,
+      provider: 'qdrant',
+      embedding_provider: adapter.provider,
+      embedding_model: adapter.model,
+      dimensions: adapter.dimensions,
+      items: items.map(item => ({
+        id: item.id,
+        kind: item.kind,
+        claim: item.claim,
+        embedding_model: item.embedding_model,
+      })),
+    },
+    records,
   };
 }
 
@@ -498,6 +537,44 @@ function buildOnboarding(rulePack: RulePack, config: CompileConfig): string {
   return lines.join('\n') + '\n';
 }
 
+async function markVectorIndex(
+  orgId: string,
+  repoId: string,
+  compiledRuleId: string,
+  compiledVersion: number,
+  index: VectorIndex,
+  status: 'ready' | 'failed',
+  error?: string,
+) {
+  await AppDataSource.query(
+    `INSERT INTO "${orgId}_vector_indexes"
+       (repo_id, compiled_rule_id, compiled_version, provider, collection, embedding_provider, embedding_model, embedding_dimensions, point_count, status, error)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [
+      repoId,
+      compiledRuleId,
+      compiledVersion,
+      index.provider,
+      index.collection ?? '',
+      index.embedding_provider ?? index.provider,
+      index.embedding_model ?? index.items[0]?.embedding_model ?? '',
+      index.dimensions,
+      index.point_count ?? index.items.length,
+      status,
+      error ?? null,
+    ],
+  );
+}
+
+async function updateCompiledVectorIndex(orgId: string, compiledRuleId: string, rulePack: RulePack) {
+  await AppDataSource.query(
+    `UPDATE "${orgId}_compiled_rules"
+        SET content = jsonb_set(content, '{vector_index}', $1::jsonb, true)
+      WHERE id = $2`,
+    [JSON.stringify(rulePack.vector_index ?? null), compiledRuleId],
+  );
+}
+
 export class CompilerService {
   async compileRepo(orgId: string, repoId: string): Promise<{ ruleCount: number; exceptionCount: number }> {
     const startedAt = Date.now();
@@ -578,9 +655,9 @@ export class CompilerService {
     }
 
     const semanticRelations = buildSemanticRelations(rulePack);
-    const vectorIndex = await attachEmbeddings(rulePack);
+    const vectorBuild = await buildVectorIndex(rulePack);
     rulePack.semantic_relations = semanticRelations;
-    if (vectorIndex) rulePack.vector_index = vectorIndex;
+    if (vectorBuild) rulePack.vector_index = vectorBuild.index;
     const pluginRuns = buildCompilerPluginRuns(config);
     if (pluginRuns.length > 0) rulePack.compiler_plugins = pluginRuns;
 
@@ -596,12 +673,14 @@ export class CompilerService {
       [repoId],
     );
     const nextVersion = verRows[0].next;
+    const compiledRuleId = crypto.randomUUID();
 
     // Save
     await AppDataSource.query(
-      `INSERT INTO "${orgId}_compiled_rules" (repo_id, rule_type, content, path_index, onboarding, version, source_experience_count)
-       VALUES ($1, 'repo', $2, $3, $4, $5, $6)`,
+      `INSERT INTO "${orgId}_compiled_rules" (id, repo_id, rule_type, content, path_index, onboarding, version, source_experience_count)
+       VALUES ($1, $2, 'repo', $3, $4, $5, $6, $7)`,
       [
+        compiledRuleId,
         repoId,
         JSON.stringify({ ...rulePack, entity_index: entityIndex, review_queue: reviewQueue }),
         JSON.stringify(pathIndex),
@@ -610,6 +689,33 @@ export class CompilerService {
         runtimeExperiences.length,
       ],
     );
+
+    if (vectorBuild) {
+      try {
+        const records = vectorBuild.records.map(record => ({
+          ...record,
+          compiledRuleId,
+          compiledVersion: Number(nextVersion),
+        }));
+        const upsert = await memoryVectorStore.upsertCompiledVectors(records);
+        if (upsert && rulePack.vector_index) {
+          rulePack.vector_index.collection = upsert.collection;
+          rulePack.vector_index.point_count = upsert.pointCount;
+          await markVectorIndex(orgId, repoId, compiledRuleId, Number(nextVersion), rulePack.vector_index, 'ready');
+          await updateCompiledVectorIndex(orgId, compiledRuleId, rulePack);
+        }
+      } catch (error) {
+        logger.warn('Qdrant vector indexing failed', { orgId, repoId, error: (error as Error).message });
+        if (rulePack.vector_index) {
+          rulePack.vector_index.point_count = vectorBuild.records.length;
+        }
+        await markVectorIndex(orgId, repoId, compiledRuleId, Number(nextVersion), {
+          ...vectorBuild.index,
+          point_count: vectorBuild.records.length,
+        }, 'failed', (error as Error).message);
+        await updateCompiledVectorIndex(orgId, compiledRuleId, rulePack);
+      }
+    }
 
     // Update repo metadata
     await AppDataSource.query(

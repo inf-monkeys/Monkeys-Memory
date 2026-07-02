@@ -280,14 +280,18 @@ export interface VectorIndexItem {
   kind: MemoryKind;
   claim: string;
   embedding_model?: string;
-  embedding: number[];
+  embedding?: number[];
 }
 
 export interface VectorIndex {
   version: number;
   provider: string;
+  embedding_provider?: string;
+  embedding_model?: string;
   dimensions: number;
   items: VectorIndexItem[];
+  collection?: string;
+  point_count?: number;
 }
 
 export interface PathIndex {

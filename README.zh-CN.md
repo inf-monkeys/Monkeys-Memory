@@ -10,8 +10,8 @@ Monkeys Memory 给 coding agent 一层项目记忆。
 里重新发现一遍。
 
 这个仓库包含完整的开源产品：Fastify API、后台 workers、PostgreSQL、Redis、
-轻量控制台和 Docker Compose。启动后会有一个本地 owner workspace，可以直接
-走完整流程，不需要先创建用户。
+Qdrant、轻量控制台和 Docker Compose。启动后会有一个本地 owner workspace，
+可以直接走完整流程，不需要先创建用户。
 
 ## 包含什么
 
@@ -19,8 +19,9 @@ Monkeys Memory 给 coding agent 一层项目记忆。
 - 基于 `memory-evaluate` 事件的 agent 上报记忆有效性分数，并在本地控制台展示
 - 用于编译、审计处理和一致性任务的后台 workers
 - 一个小控制台，用来管理本地组织和仓库，也可以快速试捕获和检索
-- 默认使用确定性的本地 embeddings，也可以通过配置接入外部 embedding 服务
-- 一条 Docker Compose 命令启动 PostgreSQL、Redis、API、workers 和控制台
+- 使用 Qdrant 作为产品化向量索引，PostgreSQL 仍然保存 canonical memory 内容
+- 配置后优先使用 OpenAI-compatible embeddings；未配置时 fallback 到确定性的本地 hash embeddings
+- 一条 Docker Compose 命令启动 PostgreSQL、Redis、Qdrant、API、workers 和控制台
 - 和开源 `monkeys-memory` 命令兼容的 API
 
 ## 快速开始
@@ -85,13 +86,14 @@ Memory 会捕获新的修正记忆，并把旧 source 标记为已被替代。
 apps/
   api/       Fastify + TypeScript API、TypeORM migrations 和 workers
   console/   由 Nginx 提供服务的轻量静态控制台
-compose.yaml 一条命令启动 PostgreSQL、Redis、API 和控制台
+compose.yaml 一条命令启动 PostgreSQL、Redis、Qdrant、API 和控制台
 ```
 
 Compose 启动的服务：
 
 - `postgres`: PostgreSQL 16
 - `redis`: Redis 7
+- `qdrant`: 已编译记忆 embeddings 的向量索引
 - `api`: Monkeys Memory API、migrations、compile worker、audit worker
 - `console`: 静态控制台，并代理同源 `/api` 和 `/health`
 
@@ -106,14 +108,27 @@ apps/api/config.yaml.example
 Compose 会把这个示例配置挂载到 `/etc/monkeys-memory/config.yaml`，并通过环境
 变量覆盖 Docker 网络中的连接信息。
 
-真实部署时，请复制示例配置，并按你的环境调整数据库、Redis、CORS 和 embedding
-配置。
+真实部署时，请复制示例配置，并按你的环境调整数据库、Redis、Qdrant、CORS 和
+embedding 配置。
 
 几个需要知道的默认值：
 
 - `deployment.mode: local`
-- `embeddings.provider: local-hash`
+- `embeddings.provider: auto`
+- `vectorStore.provider: qdrant`
 - `database.name: monkeys_memory`
+
+默认 Compose 会启动本地 Qdrant，并把 API 指向 `http://qdrant:6333`。如果你要
+使用线上或托管的 Qdrant，设置：
+
+```bash
+VECTOR_STORE_URL=https://your-qdrant.example
+VECTOR_STORE_API_KEY=your-qdrant-api-key
+```
+
+配置 `EMBEDDINGS_API_KEY` 或 `OPENAI_API_KEY` 后，API 会优先使用
+OpenAI-compatible embeddings。没有 key 时会 fallback 到本地 hash embedder，
+所以 OSS 版本依然可以离线跑通。
 
 如果要在 localhost 之外暴露服务，请先配置 HTTPS、私有网络访问控制，并替换默认数据库凭据。
 
